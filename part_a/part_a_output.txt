@@ -1,0 +1,16 @@
+SUCCESS:
+128
+FAIL:
+Negative numbers are not accepted for this blackbox
+SUCCESS:
+17
+FAIL:
+Negative numbers are not accepted for this blackbox
+FAIL:
+Result is greater than an integer
+SUCCESS:
+105
+FAIL:
+Negative numbers are not accepted for this blackbox
+FAIL:
+Result is greater than an integer
