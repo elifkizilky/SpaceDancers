@@ -1,6 +1,0 @@
-SUCCESS:
-112
-FAIL:
-Negative numbers are not accepted for this blackbox
-FAIL:
-Result is greater than an integer
