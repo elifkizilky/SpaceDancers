@@ -22,36 +22,22 @@ from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types
 
-from ryu.topology import event, switches
-from ryu.topology.api import get_switch, get_link
 
-
-class SimpleSwitch13(app_manager.RyuApp):
+class SimpleSwitch1(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     def __init__(self, *args, **kwargs):
-        super(SimpleSwitch13, self).__init__(*args, **kwargs)
+        super(SimpleSwitch1, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
-        self.topology_api_app = self
-
-
-    @set_ev_cls(event.EventSwitchEnter)
-    def get_topology_data(self, ev):
-        switch_list = get_switch(self.topology_api_app, None)
-        switches = [switch.dp.id for switch in switch_list]
-        links_list = get_link(self.topology_api_app, None)
-        links = [(link.src.dpid, link.dst.dpid, {'port': link.src.port_no}) for link in links_list]
-        print("switches ", switches)
-        print("links ", links)
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-        self.send_get_async_request(datapath)
-        self.send_set_async(datapath)
-        self.send_get_async_request(datapath)
+        self.send_flow_stats_request(datapath)
+        print("hello world!")
+
 
         # install table-miss flow entry
         #
@@ -63,39 +49,37 @@ class SimpleSwitch13(app_manager.RyuApp):
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
-        self.add_flow(datapath, 0, match, actions)
-    def send_set_async(self, datapath):
-        ofp = datapath.ofproto
-        ofp_parser = datapath.ofproto_parser
+        self.add_miss_entry_flow(datapath, 0, match, actions)
 
-        packet_in_mask = 1 << ofp.OFPR_ACTION | 1 << ofp.OFPR_INVALID_TTL
-        port_status_mask = (1 << ofp.OFPPR_ADD
-                            | 1 << ofp.OFPPR_DELETE
-                            | 1 << ofp.OFPPR_MODIFY)
-        flow_removed_mask = (1 << ofp.OFPRR_IDLE_TIMEOUT
-                            | 1 << ofp.OFPRR_HARD_TIMEOUT
-                            | 1 << ofp.OFPRR_DELETE)
-        print(ofp.OFPRR_IDLE_TIMEOUT, ofp.OFPRR_HARD_TIMEOUT, ofp.OFPRR_DELETE)
-        req = ofp_parser.OFPSetAsync(datapath,
-                                    [packet_in_mask, 0],
-                                    [port_status_mask, 0],
-                                    [flow_removed_mask, 0])
-        datapath.send_msg(req)
-
-    def add_flow(self, datapath, priority, match, actions, buffer_id=None):
-
+    def add_miss_entry_flow(self, datapath, priority, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
                                              actions)]
+        flags = ofproto.OFPFF_SEND_FLOW_REM
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
-                                    idle_timeout=30, hard_timeout=30, priority=priority, match=match,
-                                    instructions=inst, flags=ofproto.OFPFF_SEND_FLOW_REM)
+                                    idle_timeout=0, hard_timeout=0, priority=priority, match=match,
+                                    instructions=inst, flags= flags)
         else:
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                    idle_timeout=30, hard_timeout=30, match=match, instructions=inst, flags= ofproto.OFPFF_SEND_FLOW_REM)
+                                    idle_timeout=0, hard_timeout=0, match=match, instructions=inst, flags= flags)
+        datapath.send_msg(mod)
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
+                                             actions)]
+        flags = ofproto.OFPFF_SEND_FLOW_REM
+        if buffer_id:
+            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
+                                    idle_timeout=0, hard_timeout=5, priority=priority, match=match,
+                                    instructions=inst, flags= flags)
+        else:
+            mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
+                                    idle_timeout=0, hard_timeout=5, match=match, instructions=inst, flags= flags)
         datapath.send_msg(mod)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -152,53 +136,65 @@ class SimpleSwitch13(app_manager.RyuApp):
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
-    # @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
-    # def flow_removed_handler(self, ev):
-    #     self.logger.info("debug-1")
-    #     msg = ev.msg
-    #     dp = msg.datapath
-    #     ofp = dp.ofproto
 
-    #     if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
-    #         reason = 'IDLE TIMEOUT'
-    #     elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
-    #         reason = 'HARD TIMEOUT'
-    #     elif msg.reason == ofp.OFPRR_DELETE:
-    #         reason = 'DELETE'
-    #     elif msg.reason == ofp.OFPRR_GROUP_DELETE:
-    #         reason = 'GROUP DELETE'
-    #     else:
-    #         self.logger.info("debug-2")
-    #         reason = 'unknown'
-    #     self.logger.info("debug-3")
-     
-    #     self.logger.info('OFPFlowRemoved received: '
-    #                     'cookie=%d priority=%d reason=%s table_id=%d '
-    #                     'duration_sec=%d duration_nsec=%d '
-    #                     'idle_timeout=%d hard_timeout=%d '
-    #                     'packet_count=%d byte_count=%d match.fields=%s',
-    #                     msg.cookie, msg.priority, reason, msg.table_id,
-    #                     msg.duration_sec, msg.duration_nsec,
-    #                     msg.idle_timeout, msg.hard_timeout,
-    #                     msg.packet_count, msg.byte_count, msg.match)
 
-    def send_get_async_request(self, datapath):
+    def send_flow_stats_request(self, datapath):
+        ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
 
-        req = ofp_parser.OFPGetAsyncRequest(datapath)
+        cookie = cookie_mask = 0
+        match = ofp_parser.OFPMatch(in_port=1)
+        req = ofp_parser.OFPFlowStatsRequest(datapath, 0,
+                                             ofp.OFPTT_ALL,
+                                             ofp.OFPP_ANY, ofp.OFPG_ANY,
+                                             cookie, cookie_mask,
+                                             match)
         datapath.send_msg(req)
 
-    @set_ev_cls(ofp_event.EventOFPGetAsyncReply, MAIN_DISPATCHER)
-    def get_async_reply_handler(self, ev):
+    @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
+    def flow_stats_reply_handler(self, ev):
+        flows = []
+        for stat in ev.msg.body:
+            flows.append('table_id=%s '
+                         'duration_sec=%d duration_nsec=%d '
+                         'priority=%d '
+                         'idle_timeout=%d hard_timeout=%d flags=0x%04x '
+                         'cookie=%d packet_count=%d byte_count=%d '
+                         'match=%s instructions=%s' %
+                         (stat.table_id,
+                          stat.duration_sec, stat.duration_nsec,
+                          stat.priority,
+                          stat.idle_timeout, stat.hard_timeout, stat.flags,
+                          stat.cookie, stat.packet_count, stat.byte_count,
+                          stat.match, stat.instructions))
+        self.logger.debug('FlowStats: %s', flows)
+        print('FlowStats: %s' % flows)
+    @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
+    def flow_removed_handler(self, ev):
         msg = ev.msg
+        dp = msg.datapath
+        ofp = dp.ofproto
 
-        self.logger.info('OFPGetAsyncReply received: '
-                        'packet_in_mask=0x%08x:0x%08x '
-                        'port_status_mask=0x%08x:0x%08x '
-                        'flow_removed_mask=0x%08x:0x%08x',
-                        msg.packet_in_mask[0],
-                        msg.packet_in_mask[1],
-                        msg.port_status_mask[0],
-                        msg.port_status_mask[1],
-                        msg.flow_removed_mask[0],
-                        msg.flow_removed_mask[1])
+        if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
+            reason = 'IDLE TIMEOUT'
+        elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
+            reason = 'HARD TIMEOUT'
+        elif msg.reason == ofp.OFPRR_DELETE:
+            reason = 'DELETE'
+        elif msg.reason == ofp.OFPRR_GROUP_DELETE:
+            reason = 'GROUP DELETE'
+        else:
+            reason = 'unknown'
+        print(msg.cookie, msg.priority, reason, msg.table_id,
+       msg.duration_sec, msg.duration_nsec,
+       msg.idle_timeout, msg.hard_timeout,
+       msg.packet_count, msg.byte_count, msg.match)
+        self.logger.debug('OFPFlowRemoved received: '
+                        'cookie=%d priority=%d reason=%s table_id=%d '
+                        'duration_sec=%d duration_nsec=%d '
+                        'idle_timeout=%d hard_timeout=%d '
+                        'packet_count=%d byte_count=%d match.fields=%s',
+                        msg.cookie, msg.priority, reason, msg.table_id,
+                        msg.duration_sec, msg.duration_nsec,
+                        msg.idle_timeout, msg.hard_timeout,
+                        msg.packet_count, msg.byte_count, msg.match)
