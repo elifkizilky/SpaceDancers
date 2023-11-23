@@ -28,7 +28,8 @@ from ryu.lib import hub
 #python related library for organizing data?
 from operator import attrgetter
 
-
+cookie=0
+table_size=5
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
@@ -56,7 +57,11 @@ class SimpleMonitor13(app_manager.RyuApp):
         while True:
             for dp in self.datapaths.values():
                 self._request_stats(dp)
-            hub.sleep(10)
+                self.remove_flow(dp, 2)
+                self.send_table_stats_request(dp)
+            
+            hub.sleep(20)
+
 
     def _request_stats(self, datapath):
         self.logger.debug('send stats request: %016x', datapath.id)
@@ -140,19 +145,35 @@ class SimpleMonitor13(app_manager.RyuApp):
                                     idle_timeout=0, hard_timeout=0, match=match, instructions=inst, flags= flags)
         datapath.send_msg(mod)
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
+        global cookie
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-
+        
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
                                              actions)]
         flags = ofproto.OFPFF_SEND_FLOW_REM
         if buffer_id:
-            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
-                                    idle_timeout=0, hard_timeout=5, priority=priority, match=match,
+            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id, cookie= cookie,
+                                    idle_timeout=5, hard_timeout=0, priority=priority, match=match,
                                     instructions=inst, flags= flags)
         else:
-            mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                    idle_timeout=0, hard_timeout=5, match=match, instructions=inst, flags= flags)
+            mod = parser.OFPFlowMod(datapath=datapath, priority=priority, cookie= cookie,
+                                    idle_timeout=5, hard_timeout=0, match=match, instructions=inst, flags= flags)
+        cookie +=1
+        datapath.send_msg(mod)
+
+    def remove_flow(self, datapath, cookie):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        mod= parser.OFPFlowMod(
+            datapath=datapath,
+            cookie=2,
+            cookie_mask=0xFFFFFFFFFFFFFFFF,
+            table_id=ofproto.OFPTT_ALL,
+            command=ofproto.OFPFC_DELETE,
+            out_port=ofproto.OFPP_ANY,
+            out_group=ofproto.OFPG_ANY
+        )
         datapath.send_msg(mod)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -209,8 +230,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
-
-
+    #to delete flow rule
+  
+  
     def send_flow_stats_request(self, datapath):
         ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
@@ -271,3 +293,25 @@ class SimpleMonitor13(app_manager.RyuApp):
                         msg.duration_sec, msg.duration_nsec,
                         msg.idle_timeout, msg.hard_timeout,
                         msg.packet_count, msg.byte_count, msg.match)
+
+    def send_table_stats_request(self, datapath):
+        ofp_parser = datapath.ofproto_parser
+
+        req = ofp_parser.OFPTableStatsRequest(datapath, 0)
+        datapath.send_msg(req)
+    
+    @set_ev_cls(ofp_event.EventOFPTableStatsReply, MAIN_DISPATCHER)
+    def table_stats_reply_handler(self, ev):
+        tables = []
+        for stat in ev.msg.body:
+            tables.append('table_id=%d active_count=%d lookup_count=%d '
+                        ' matched_count=%d' %
+                        (stat.table_id, stat.active_count,
+                        stat.lookup_count, stat.matched_count))
+            if stat.table_id==0:
+                print('TableStats: %s', stat)
+                print("flow table ratio: %s", stat.active_count/table_size*100)
+        
+        self.logger.debug('TableStats: %s', tables)
+
+    
