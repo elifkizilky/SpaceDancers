@@ -33,6 +33,7 @@ from operator import attrgetter
 
 cookie=0
 table_size=5
+npacketIn=0
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
@@ -42,6 +43,42 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.mac_to_port = {}
         self.datapaths = {}
         self.monitor_thread = hub.spawn(self._monitor)
+        
+        
+    #get the table_occupancy globally
+    def set_idle_timeout(self, key, table_occupancy):
+        global npacketIn
+        t_init = 1  # Initial value for idle time
+        idle_timeout = t_init
+        tmax = 30  # Maximum idle time
+        
+        DeleteThreshold = 90 #for deleting flows from dat table
+        coef95 = 0.9
+        b_value = 1
+        
+        if key not in self.data_table:
+            idle_timeout = t_init  # Initialize idle time
+            npacketIn = 1
+        else:
+            npacketIn += 1
+                    
+            if table_occupancy <=  0.75:
+                idle_timeout = min(t_init * 2 ** npacketIn, tmax)
+            elif table_occupancy <= 0.95:
+                tmax = tmax * coef95 - b_value
+                tpacketIn = self.data_table.get(key).get('last_packet_in', 0)
+                tlastRemoved = self.data_table.get(key).get('last_removed', 0)
+                tlastDuration = self.data_table.get(key).get('last_duration', 0)
+                if tpacketIn - tlastRemoved <= tlastDuration:
+                    idle_timeout = min(tlastDuration + tpacketIn - tlastRemoved, tmax)
+                else:
+                    idle_timeout = tlastDuration
+            elif table_occupancy > 0.95:
+                idle_timeout = 1
+    
+        return idle_timeout
+        
+
 
     @set_ev_cls(ofp_event.EventOFPStateChange,
                 [MAIN_DISPATCHER, DEAD_DISPATCHER])
