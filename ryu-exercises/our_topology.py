@@ -6,7 +6,7 @@ from mininet.node import RemoteController
 from scapy.all import *
 import time
 s1 =0
-SWITCH_SIZE= 10
+SWITCH_SIZE= 20
 class MyTopology(Topo):
     def build(self):
         global s1
@@ -41,12 +41,10 @@ def create_hosts(topo, pcap_file):
             # Check if source host exists, add if not
             if src_ip not in hosts:
                 src_host = topo.addHost('h_' + src_ip.replace('.', '_'))
-                #src_host.setIP(src_ip)
-                print(src_host)
                 hosts[src_ip] = src_host
                 macs[src_host]= src_mac
                 topo.addLink(s1,src_host)
-                print("added: ", src_ip)
+    
 
             # Check if destination host exists, add if not
             if dst_ip not in hosts:
@@ -54,11 +52,6 @@ def create_hosts(topo, pcap_file):
                 hosts[dst_ip] = dst_host
                 macs[dst_host]= dst_mac
                 topo.addLink(s1,dst_host)
-                print("added dest: " , dst_ip)
-            print(topo.nodes())
-    print("hosts",topo.hosts())
-       
-    print("nodes",topo.nodes())
      
     return hosts, macs
     
@@ -70,11 +63,8 @@ def set_flow_table_size(switch_name, flow_table_size):
 def start_mininet():
     
     topo = MyTopology()
-    hosts, macs = create_hosts(topo, "my.pcap")
-    print("hosts inside start-mininet",hosts)
+    hosts, macs = create_hosts(topo, "univ1_pt1")
 
-    for key, value in hosts.items():
-        print(f"{key}: {value}")
     controller = RemoteController('c0', ip='127.0.0.1', port=6633)
     net = Mininet(topo=topo, controller=controller)
     net.start()
@@ -82,12 +72,11 @@ def start_mininet():
     set_flow_table_size('s1', SWITCH_SIZE)
     for key, value in hosts.items():
         host= net.getNodeByName(value)
-        print(host)
         host.setIP(key)
         host.setMAC(macs[value])
     time.sleep(5)
     # Replay the pcap file into Mininet using tcpreplay
-    subprocess.call(["sudo", "tcpreplay", "-i","s1-eth1","--duration" ,"5","my.pcap"])
+    subprocess.call(["sudo", "tcpreplay", "-i","s1-eth1","--duration" ,"5","univ1_pt1"])
  
     CLI(net)  # This drops you into a Mininet command prompt when the script is run
 
