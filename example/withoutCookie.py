@@ -59,7 +59,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         while True:
             for dp in self.datapaths.values():
                 self._request_stats(dp)
-                self.remove_flow(dp, 2)
+                #self.remove_flow(dp, 2)
                 self.send_table_stats_request(dp)
                 print("Data table: ", self.data_table)
             
@@ -80,9 +80,6 @@ class SimpleMonitor13(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def _flow_stats_reply_handler(self, ev):
         body = ev.msg.body
-        
-        print("MSG", ev.msg)
-        print("BODY ", ev.msg.body )
 
         self.logger.info('datapath         '
                          'in-port  eth-dst           '
@@ -155,7 +152,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                     idle_timeout=0, hard_timeout=0, match=match, instructions=inst, flags= flags)
         datapath.send_msg(mod)
-    def add_flow(self, datapath, priority, match, actions, flow_identifier, buffer_id=None):
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         global cookie
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
@@ -163,6 +160,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
                                              actions)]
         flags = ofproto.OFPFF_SEND_FLOW_REM
+        ''' 
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id, cookie= cookie,
                                     idle_timeout=5, hard_timeout=0, priority=priority, match=match,
@@ -171,10 +169,21 @@ class SimpleMonitor13(app_manager.RyuApp):
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority, cookie= cookie,
                                     idle_timeout=5, hard_timeout=0, match=match, instructions=inst, flags= flags)
         cookie +=1
+        '''
         
+        if buffer_id:
+            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
+                                    idle_timeout=5, hard_timeout=0, priority=priority, match=match,
+                                    instructions=inst, flags= flags)
+        else:
+            mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
+                                    idle_timeout=5, hard_timeout=0, match=match, instructions=inst, flags= flags)
+    
+        
+        ''' 
         # Get the existing flow attributes (assuming you have access to flow-specific identifier, e.g., cookie)
        
-        existing_flow_attributes = self.data_table.get(flow_identifier, {})
+        existing_flow_attributes = self.data_table.get(cookie, {})
 
         # Get the current time in a suitable format
         current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -183,8 +192,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         existing_flow_attributes['last_packet_in'] = current_time
 
         # Update the flow table with the modified flow attributes
-        self.data_table[flow_identifier] = existing_flow_attributes
-                
+        self.data_table[cookie] = existing_flow_attributes
+        '''  
         datapath.send_msg(mod)
 
     def remove_flow(self, datapath, cookie):
@@ -222,8 +231,6 @@ class SimpleMonitor13(app_manager.RyuApp):
             return
         dst = eth.dst
         src = eth.src
-        # Create a unique identifier for the flow
-        flow_identifier = f"{src}-{dst}-{in_port}"
 
         dpid = datapath.id
         self.mac_to_port.setdefault(dpid, {})
@@ -246,10 +253,10 @@ class SimpleMonitor13(app_manager.RyuApp):
             # verify if we have a valid buffer_id, if yes avoid to send both
             # flow_mod & packet_out
             if msg.buffer_id != ofproto.OFP_NO_BUFFER:
-                self.add_flow(datapath, 1, match, actions, flow_identifier, msg.buffer_id)
+                self.add_flow(datapath, 1, match, actions, msg.buffer_id)
                 return
             else:
-                self.add_flow(datapath, 1, match, flow_identifier, actions)
+                self.add_flow(datapath, 1, match, actions)
 
         data = None
         if msg.buffer_id == ofproto.OFP_NO_BUFFER:
@@ -278,11 +285,6 @@ class SimpleMonitor13(app_manager.RyuApp):
     def flow_stats_reply_handler(self, ev):
         flows = []
         for stat in ev.msg.body:
-            dst = stat.match['eth_dst']
-            src = stat.match['eth_src']
-            
-            in_port = stat.match['in_port']
-            flow_identifier = f"{src}-{dst}-{in_port}"  # Creating a flow-specific identifier
             flows.append('table_id=%s '
                          'duration_sec=%d duration_nsec=%d '
                          'priority=%d '
@@ -296,11 +298,12 @@ class SimpleMonitor13(app_manager.RyuApp):
                           stat.cookie, stat.packet_count, stat.byte_count,
                           stat.match, stat.instructions))
             
+            '''
             cookie = stat.cookie  # Assuming cookie is unique for each flow
-            if flow_identifier in self.data_table:
+            if cookie in self.data_table:
                 # Assuming you have some existing values for last_packet_in and last_removed
-                existing_last_packet_in =  self.data_table.get(flow_identifier).get('last_packet_in')  # Replace with actual existing value
-                existing_last_removed = self.data_table.get(flow_identifier).get('last_removed')  # Replace with actual existing value
+                existing_last_packet_in =  self.data_table.get(cookie).get('last_packet_in')  # Replace with actual existing value
+                existing_last_removed = self.data_table.get(cookie).get('last_removed')  # Replace with actual existing value
 
                 # Update the other attributes while preserving existing last_packet_in and last_removed
                 flow_attributes = {
@@ -311,15 +314,13 @@ class SimpleMonitor13(app_manager.RyuApp):
                     'last_timeout': stat.idle_timeout  # Update with last timeout
                 }
                 
-                self.data_table[flow_identifier] = flow_attributes
-            
+                self.data_table[cookie] = flow_attributes
+            '''
             
             
             
         self.logger.debug('FlowStats: %s', flows)
         print('FlowStats: %s' % flows)
-        
-        
     @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
     def flow_removed_handler(self, ev):
         msg = ev.msg
@@ -336,15 +337,10 @@ class SimpleMonitor13(app_manager.RyuApp):
             reason = 'GROUP DELETE'
         else:
             reason = 'unknown'
-        
-        # Formulating the flow identifier using specific fields from the message
-        flow_identifier = f"{msg.match['in_port']}-{msg.match['eth_src']}-{msg.match['eth_dst']}"
-        
         print(msg.cookie, msg.priority, reason, msg.table_id,
-            msg.duration_sec, msg.duration_nsec,
-            msg.idle_timeout, msg.hard_timeout,
-            msg.packet_count, msg.byte_count, msg.match)
-        
+       msg.duration_sec, msg.duration_nsec,
+       msg.idle_timeout, msg.hard_timeout,
+       msg.packet_count, msg.byte_count, msg.match)
         self.logger.debug('OFPFlowRemoved received: '
                         'cookie=%d priority=%d reason=%s table_id=%d '
                         'duration_sec=%d duration_nsec=%d '
@@ -354,9 +350,12 @@ class SimpleMonitor13(app_manager.RyuApp):
                         msg.duration_sec, msg.duration_nsec,
                         msg.idle_timeout, msg.hard_timeout,
                         msg.packet_count, msg.byte_count, msg.match)
+    
+        ''' 
+        cookie = msg.cookie  # Assuming cookie is unique for each flow
 
-        # Get the existing flow attributes based on the flow identifier
-        existing_flow_attributes = self.data_table.get(flow_identifier, {})
+        # Get the existing flow attributes
+        existing_flow_attributes = self.data_table.get(cookie, {})
 
         # Get the current time in a suitable format
         current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -365,7 +364,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         existing_flow_attributes['last_removed'] = current_time
 
         # Update the flow table with the modified flow attributes
-        self.data_table[flow_identifier] = existing_flow_attributes
+        self.data_table[cookie] = existing_flow_attributes
+        '''
 
 
     def send_table_stats_request(self, datapath):
