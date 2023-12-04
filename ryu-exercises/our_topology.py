@@ -4,7 +4,9 @@ from mininet.net import Mininet
 from mininet.cli import CLI
 from mininet.node import RemoteController
 from scapy.all import *
+import time
 s1 =0
+SWITCH_SIZE= 10
 class MyTopology(Topo):
     def build(self):
         global s1
@@ -60,9 +62,13 @@ def create_hosts(topo, pcap_file):
      
     return hosts, macs
     
-  
+def set_flow_table_size(switch_name, flow_table_size):
+    # Use ovs-vsctl command to set flow table size for the switch
+    cmd = f"sudo ovs-vsctl -- --id=@ft create Flow_Table flow_limit={flow_table_size} overflow_policy=refuse -- set Bridge {switch_name} flow_tables=0=@ft"
+    subprocess.call(cmd, shell=True) 
 
 def start_mininet():
+    
     topo = MyTopology()
     hosts, macs = create_hosts(topo, "my.pcap")
     print("hosts inside start-mininet",hosts)
@@ -71,19 +77,18 @@ def start_mininet():
         print(f"{key}: {value}")
     controller = RemoteController('c0', ip='127.0.0.1', port=6633)
     net = Mininet(topo=topo, controller=controller)
-
     net.start()
+
+    set_flow_table_size('s1', SWITCH_SIZE)
     for key, value in hosts.items():
         host= net.getNodeByName(value)
         print(host)
         host.setIP(key)
         host.setMAC(macs[value])
-    
+    time.sleep(5)
     # Replay the pcap file into Mininet using tcpreplay
     subprocess.call(["sudo", "tcpreplay", "-i","s1-eth1","--duration" ,"5","my.pcap"])
-    #subprocess.call(["sudo", "tcpreplay", "-i","s1-eth2","--duration" ,"5","my.pcap"])
-    #subprocess.call(["sudo", "tcpreplay", "-i","s1-eth3","--duration" ,"5","my.pcap"])
-    #subprocess.call(["sudo", "tcpreplay", "-i","s1-eth4","--duration" ,"5","my.pcap"])
+ 
     CLI(net)  # This drops you into a Mininet command prompt when the script is run
 
     net.stop()
