@@ -30,6 +30,10 @@ from ryu.lib import hub
 
 #python related library for organizing data?
 from operator import attrgetter
+import threading
+
+# Initialize a lock
+totalNumFlows_lock = threading.Lock()
 
 cookie=0
 table_size=5  #just reading
@@ -218,56 +222,58 @@ class SimpleMonitor13(app_manager.RyuApp):
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         global cookie
         global totalNUmFLows
-        totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        dpid= datapath.id
-        src = match["eth_src"]
-        dst = match["eth_dst"]
-        in_port = match["in_port"]
-        key = self.generate_key(src, dst,in_port )
-        
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
-                                             actions)]
-        flags = ofproto.OFPFF_SEND_FLOW_REM
-        
-        allocatedTimeout = self.set_idle_timeout(key)
-        print("ALLOCATED TIMEOUT FOR THE FLOW %s IS %d" % (key, allocatedTimeout))
-        if buffer_id:
-            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
-                                    idle_timeout=allocatedTimeout, hard_timeout=0, priority=priority, match=match,
-                                    instructions=inst, flags= flags)
+        with totalNumFlows_lock:
+            totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
+            print("ARTTIRDIM")
+            ofproto = datapath.ofproto
+            parser = datapath.ofproto_parser
+            dpid= datapath.id
+            src = match["eth_src"]
+            dst = match["eth_dst"]
+            in_port = match["in_port"]
+            key = self.generate_key(src, dst,in_port )
             
-        else:
-            mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                    idle_timeout=allocatedTimeout, hard_timeout=0, match=match, instructions=inst, flags= flags)
-        #cookie +=1
-        
-        self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
-        if key in self.data_table:
-            packet_count = self.data_table.get(key).get("packet_count", 0)
-            packet_count += 1
-            self.data_table[key]["packet_count"] = packet_count
-            print("arttırıldı", key)
-        else:
-            self.data_table[key] = {"packet_count": 1}  # Initialize packet_count as 1 for the new key
+            inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
+                                                actions)]
+            flags = ofproto.OFPFF_SEND_FLOW_REM
             
-        
-        
-        # Get the existing flow attributes (assuming you have access to flow-specific identifier, e.g., cookie)
-       
-        existing_flow_attributes = self.data_table.get(key, {})
-
-        # Get the current time in a suitable format
-        current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-        # Update only the last_packet_in attribute, preserving other attributes
-        existing_flow_attributes['last_packet_in'] = current_time
-
-        # Update the flow table with the modified flow attributes
-        self.data_table[key] = existing_flow_attributes
+            allocatedTimeout = self.set_idle_timeout(key)
+            print("ALLOCATED TIMEOUT FOR THE FLOW %s IS %d" % (key, allocatedTimeout))
+            if buffer_id:
+                mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
+                                        idle_timeout=allocatedTimeout, hard_timeout=0, priority=priority, match=match,
+                                        instructions=inst, flags= flags)
                 
-        datapath.send_msg(mod)
+            else:
+                mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
+                                        idle_timeout=allocatedTimeout, hard_timeout=0, match=match, instructions=inst, flags= flags)
+            #cookie +=1
+            
+            self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+            if key in self.data_table:
+                packet_count = self.data_table.get(key).get("packet_count", 0)
+                packet_count += 1
+                self.data_table[key]["packet_count"] = packet_count
+                print("arttırıldı", key)
+            else:
+                self.data_table[key] = {"packet_count": 1}  # Initialize packet_count as 1 for the new key
+                
+            
+            
+            # Get the existing flow attributes (assuming you have access to flow-specific identifier, e.g., cookie)
+        
+            existing_flow_attributes = self.data_table.get(key, {})
+
+            # Get the current time in a suitable format
+            current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+            # Update only the last_packet_in attribute, preserving other attributes
+            existing_flow_attributes['last_packet_in'] = current_time
+
+            # Update the flow table with the modified flow attributes
+            self.data_table[key] = existing_flow_attributes
+                    
+            datapath.send_msg(mod)
 
     def remove_flow(self, datapath, cookie):
         ofproto = datapath.ofproto
@@ -385,64 +391,66 @@ class SimpleMonitor13(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
     def flow_removed_handler(self, ev):
         global totalNUmFLows
-        msg = ev.msg
-        dp = msg.datapath
-        ofp = dp.ofproto
+        with totalNumFlows_lock:
+            msg = ev.msg
+            dp = msg.datapath
+            ofp = dp.ofproto
 
-        if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
-            reason = 'IDLE TIMEOUT'
-        elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
-            reason = 'HARD TIMEOUT'
-        elif msg.reason == ofp.OFPRR_DELETE:
-            reason = 'DELETE'
-        elif msg.reason == ofp.OFPRR_GROUP_DELETE:
-            reason = 'GROUP DELETE'
-        else:
-            reason = 'unknown'
-        print(msg.cookie, msg.priority, reason, msg.table_id,
-            msg.duration_sec, msg.duration_nsec,
-            msg.idle_timeout, msg.hard_timeout,
-            msg.packet_count, msg.byte_count, msg.match)
-        self.logger.debug('OFPFlowRemoved received: '
-                        'cookie=%d priority=%d reason=%s table_id=%d '
-                        'duration_sec=%d duration_nsec=%d '
-                        'idle_timeout=%d hard_timeout=%d '
-                        'packet_count=%d byte_count=%d match.fields=%s',
-                        msg.cookie, msg.priority, reason, msg.table_id,
-                        msg.duration_sec, msg.duration_nsec,
-                        msg.idle_timeout, msg.hard_timeout,
-                        msg.packet_count, msg.byte_count, msg.match)
-    
-        dst = msg.match["eth_dst"]
-        src = msg.match["eth_src"]
-        in_port = msg.match["in_port"]
-        key = self.generate_key(src,dst,in_port)
-        #cookie = msg.cookie  # Assuming cookie is unique for each flow
-
-        # Get the existing flow attributes
-        existing_flow_attributes = self.data_table.get(key, {})
-
-        # Get the current time in a suitable format
-        current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-        # Assuming 'last_packet_in' and 'last_removed' are strings representing timestamps
-        last_packet_in_str = existing_flow_attributes['last_packet_in']
-
-        # Convert strings to datetime objects
-        last_packet_in_dt = datetime.strptime(last_packet_in_str, "%Y-%m-%d %H:%M:%S")
-        last_removed_dt = datetime.strptime(current_time, "%Y-%m-%d %H:%M:%S")
-
-        # Calculate the duration
-        duration = last_removed_dt - last_packet_in_dt
-
-        # Update only the last_removed attribute, preserving other attributes
-        existing_flow_attributes['last_removed'] = current_time
-        existing_flow_attributes['last_duration'] = duration.total_seconds()
+            if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
+                reason = 'IDLE TIMEOUT'
+            elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
+                reason = 'HARD TIMEOUT'
+            elif msg.reason == ofp.OFPRR_DELETE:
+                reason = 'DELETE'
+            elif msg.reason == ofp.OFPRR_GROUP_DELETE:
+                reason = 'GROUP DELETE'
+            else:
+                reason = 'unknown'
+            print(msg.cookie, msg.priority, reason, msg.table_id,
+                msg.duration_sec, msg.duration_nsec,
+                msg.idle_timeout, msg.hard_timeout,
+                msg.packet_count, msg.byte_count, msg.match)
+            self.logger.debug('OFPFlowRemoved received: '
+                            'cookie=%d priority=%d reason=%s table_id=%d '
+                            'duration_sec=%d duration_nsec=%d '
+                            'idle_timeout=%d hard_timeout=%d '
+                            'packet_count=%d byte_count=%d match.fields=%s',
+                            msg.cookie, msg.priority, reason, msg.table_id,
+                            msg.duration_sec, msg.duration_nsec,
+                            msg.idle_timeout, msg.hard_timeout,
+                            msg.packet_count, msg.byte_count, msg.match)
         
+            dst = msg.match["eth_dst"]
+            src = msg.match["eth_src"]
+            in_port = msg.match["in_port"]
+            key = self.generate_key(src,dst,in_port)
+            #cookie = msg.cookie  # Assuming cookie is unique for each flow
 
-        # Update the flow table with the modified flow attributes
-        self.data_table[key] = existing_flow_attributes
-        totalNUmFLows -= 1
+            # Get the existing flow attributes
+            existing_flow_attributes = self.data_table.get(key, {})
+
+            # Get the current time in a suitable format
+            current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+            # Assuming 'last_packet_in' and 'last_removed' are strings representing timestamps
+            last_packet_in_str = existing_flow_attributes['last_packet_in']
+
+            # Convert strings to datetime objects
+            last_packet_in_dt = datetime.strptime(last_packet_in_str, "%Y-%m-%d %H:%M:%S")
+            last_removed_dt = datetime.strptime(current_time, "%Y-%m-%d %H:%M:%S")
+
+            # Calculate the duration
+            duration = last_removed_dt - last_packet_in_dt
+
+            # Update only the last_removed attribute, preserving other attributes
+            existing_flow_attributes['last_removed'] = current_time
+            existing_flow_attributes['last_duration'] = duration.total_seconds()
+            
+
+            # Update the flow table with the modified flow attributes
+            self.data_table[key] = existing_flow_attributes   
+            totalNUmFLows -= 1
+            print("AZALTTIM")
     
 
 
