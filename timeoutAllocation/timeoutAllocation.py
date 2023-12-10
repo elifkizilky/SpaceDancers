@@ -23,10 +23,11 @@ from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types
 import time
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 #added for stats request
 from ryu.lib import hub
+
 
 #python related library for organizing data?
 from operator import attrgetter
@@ -48,6 +49,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.data_table = {}  # Dictionary to hold flow attributes
         self.mac_to_port = {}
         self.datapaths = {}
+        self.start_time = datetime.now()
         self.monitor_thread = hub.spawn(self._monitor)
         
         
@@ -118,6 +120,32 @@ class SimpleMonitor13(app_manager.RyuApp):
         #print("COOKIE ", combined_values)
         return combined_values
 
+    # This function checks and removes entries from the data table
+    def check_and_delete_entries(self):
+        current_time = datetime.now()
+        elapsed_time = (current_time - self.start_time).total_seconds()
+        print("ELAPSED TIME %f" % (elapsed_time))
+        entries_to_delete = []
+        DeleteThreshold = 90  # Define your DeleteThreshold constant here
+
+        for key, attributes in self.data_table.items():
+            last_removed_str = attributes.get('last_removed')
+            if last_removed_str:
+                #last_removed_dt = datetime.strptime(last_removed_str, "%Y-%m-%d %H:%M:%S")
+
+                last_duration = attributes.get('last_duration', 0)
+                # Creating a timedelta object representing a duration of 90 seconds
+                #delete_threshold = timedelta(seconds=DeleteThreshold)
+
+                if last_duration + DeleteThreshold < elapsed_time:
+                    entries_to_delete.append(key)
+
+        # Remove entries that meet the deletion condition
+        for key in entries_to_delete:
+            print("%s DELETED FROM DATA TABLE" & (key))
+            del self.data_table[key]
+        
+
     #send stats request every 10s
     def _monitor(self):
         while True:
@@ -125,6 +153,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 self._request_stats(dp)
                 #self.remove_flow(dp, 2)
                 self.send_table_stats_request(dp)
+                self.check_and_delete_entries()
                 print("Data table: ", self.data_table)
             
             hub.sleep(20)
@@ -218,7 +247,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         datapath.send_msg(mod)
         
         
-        
+    
+    
+    
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         global cookie
         global totalNUmFLows
