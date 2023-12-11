@@ -47,6 +47,8 @@ class SimpleMonitor13(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(SimpleMonitor13, self).__init__(*args, **kwargs)
         self.data_table = {}  # Dictionary to hold flow attributes
+        self.eviction_cache = {} # dictionary to hold flows that will be evicted (key,heut)
+        self.eviction_data_table = {}
         self.mac_to_port = {}
         self.datapaths = {}
         self.start_time = datetime.now()
@@ -62,6 +64,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         idle_timeout = t_init
         tmax = 30  # Maximum idle time
         
+        
         print("TABLE OCCUPANCY IS %f" % (table_occupancy))
         print("TABLE OCCUPANCY IS %f ALTERNATIVE METHOD" % (totalNUmFLows/table_size))
         #table_occupancy=npacketIn/table_size
@@ -74,6 +77,10 @@ class SimpleMonitor13(app_manager.RyuApp):
             idle_timeout = t_init  # Initialize idle time
             npacketIn = 1
         else:
+            tlastDuration = self.data_table.get(key).get('last_duration', 0)
+            
+            
+                
             npacketIn = self.data_table.get(key).get('packet_count', 0)
             #npacketIn += 1
             print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
@@ -83,13 +90,13 @@ class SimpleMonitor13(app_manager.RyuApp):
                 tmax = tmax * coef95 - b_value
                 tpacketIn = self.data_table.get(key).get('last_packet_in', 0)
                 tlastRemoved = self.data_table.get(key).get('last_removed', 0)
-                tlastDuration = self.data_table.get(key).get('last_duration', 0)
                 if tpacketIn - tlastRemoved <= tlastDuration:
                     idle_timeout = min(tlastDuration + tpacketIn - tlastRemoved, tmax)
                 else:
                     idle_timeout = tlastDuration
             elif table_occupancy > 0.95:
                 idle_timeout = 1
+            
     
         return idle_timeout
         
@@ -142,7 +149,7 @@ class SimpleMonitor13(app_manager.RyuApp):
 
         # Remove entries that meet the deletion condition
         for key in entries_to_delete:
-            print("%s DELETED FROM DATA TABLE" & (key))
+            print("%s DELETED FROM DATA TABLE" % (key))
             del self.data_table[key]
         
 
@@ -155,6 +162,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 self.send_table_stats_request(dp)
                 self.check_and_delete_entries()
                 print("Data table: ", self.data_table)
+                print("DATA TABLE FOR PROACTIVE", self.eviction_data_table)
             
             hub.sleep(20)
 
@@ -286,8 +294,16 @@ class SimpleMonitor13(app_manager.RyuApp):
                 packet_count += 1
                 self.data_table[key]["packet_count"] = packet_count
                 print("arttırıldı", key)
+                #self.eviction_data_table[key]["packet_count"] = packet_count
             else:
                 self.data_table[key] = {"packet_count": 1}  # Initialize packet_count as 1 for the new key
+                #self.eviction_data_table[key] = {"packet_count": 1}
+                self.eviction_data_table[key] = {"hit_count": 1}
+            
+          
+            #idle_timeout of the flow for proactive eviction data table
+            self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
+           
                 
             
             
@@ -300,7 +316,9 @@ class SimpleMonitor13(app_manager.RyuApp):
 
             # Update only the last_packet_in attribute, preserving other attributes
             existing_flow_attributes['last_packet_in'] = current_time
-
+            
+            self.eviction_data_table[key]["packet_in_time"] = current_time
+            self.eviction_data_table[key]["last_hit_time"] = current_time #this is the first last_hit_time
             # Update the flow table with the modified flow attributes
             self.data_table[key] = existing_flow_attributes
                     
@@ -345,8 +363,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         dpid = datapath.id
         self.mac_to_port.setdefault(dpid, {})
 
-        #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+      
 
+       
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = in_port
 
@@ -377,6 +396,26 @@ class SimpleMonitor13(app_manager.RyuApp):
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
+        
+        key = self.generate_key(src, dst, in_port)
+        
+        current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        if key in self.eviction_data_table:
+            if "packet_in_time" in self.eviction_data_table[key]: 
+                # increase hit count while in the table
+                hit_count = self.eviction_data_table.get(key).get("hit_count", 0)
+                hit_count += 1
+                self.eviction_data_table[key]["hit_count"] = hit_count
+                self.eviction_data_table[key]["last_hit_time"] = current_time
+                print("LAST HIT CURRENT TIME", current_time)
+                
+                
+           
+       
+        #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+        
+      
+            
     #to delete flow rule
   
   
