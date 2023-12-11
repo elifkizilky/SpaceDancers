@@ -53,8 +53,21 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.datapaths = {}
         self.start_time = datetime.now()
         self.monitor_thread = hub.spawn(self._monitor)
+       
         
+    #calculate heuristic
+    def calculate_heuristic(self):
+        for key in self.eviction_data_table:
+            packet_in = datetime.strptime(self.eviction_data_table[key]["packet_in_time"], "%Y-%m-%d %H:%M:%S")
+            last_hit = datetime.strptime(self.eviction_data_table[key]["last_hit_time"], "%Y-%m-%d %H:%M:%S")
+            total_hits = self.eviction_data_table[key]["hit_count"]
+            current_time = datetime.now()
+            heuristic = ((last_hit - packet_in).total_seconds()/(current_time-packet_in).total_seconds())* total_hits
+            self.eviction_cache[key] = heuristic
         
+        print("SELF EVICTION CACHE" , self.eviction_cache)
+    
+     
     #get the table_occupancy globally
     def set_idle_timeout(self, key):
         global table_occupancy
@@ -163,6 +176,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 self.check_and_delete_entries()
                 print("Data table: ", self.data_table)
                 print("DATA TABLE FOR PROACTIVE", self.eviction_data_table)
+                self.calculate_heuristic()
             
             hub.sleep(20)
 
