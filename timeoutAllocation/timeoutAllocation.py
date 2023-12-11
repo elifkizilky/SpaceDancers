@@ -312,11 +312,16 @@ class SimpleMonitor13(app_manager.RyuApp):
             else:
                 self.data_table[key] = {"packet_count": 1}  # Initialize packet_count as 1 for the new key
                 #self.eviction_data_table[key] = {"packet_count": 1}
-                self.eviction_data_table[key] = {"hit_count": 1}
+                #self.eviction_data_table[key] = {"hit_count": 1}
             
           
             #idle_timeout of the flow for proactive eviction data table
-            self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
+            if key not in self.eviction_data_table:
+                # If the key doesn't exist, set the value for the key using setdefault
+                self.eviction_data_table.setdefault(key, {})["idle_timeout"] = allocatedTimeout
+            else:
+                # If the key exists, update the value
+                self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
            
                 
             
@@ -417,9 +422,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         if key in self.eviction_data_table:
             if "packet_in_time" in self.eviction_data_table[key]: 
                 # increase hit count while in the table
-                hit_count = self.eviction_data_table.get(key).get("hit_count", 0)
-                hit_count += 1
-                self.eviction_data_table[key]["hit_count"] = hit_count
+                #hit_count = self.eviction_data_table.get(key).get("hit_count", 0)
+                #hit_count += 1
+                #self.eviction_data_table[key]["hit_count"] = hit_count
                 self.eviction_data_table[key]["last_hit_time"] = current_time
                 print("LAST HIT CURRENT TIME", current_time)
                 
@@ -462,6 +467,38 @@ class SimpleMonitor13(app_manager.RyuApp):
                           stat.idle_timeout, stat.hard_timeout, stat.flags,
                           stat.cookie, stat.packet_count, stat.byte_count,
                           stat.match, stat.instructions))
+            print(type(stat.match))
+            if 'in_port' in stat.match and 'eth_src' in stat.match and 'eth_dst' in stat.match:
+                in_port = stat.match['in_port']
+                eth_src = stat.match['eth_src']
+                eth_dst = stat.match['eth_dst']
+                print(in_port)
+                key = self.generate_key(eth_src,eth_dst,in_port)
+                self.eviction_data_table[key]["hit_count"] = stat.packet_count
+                print(eth_src)
+                print(eth_dst)
+            
+                
+
+            '''
+            # Extracting in_port
+            in_port_start = stat.match.find("'in_port': ") + len("'in_port': ")
+            in_port_end = stat.match.find(",", in_port_start)
+            in_port = stat.match[in_port_start:in_port_end]
+
+            # Extracting eth_src
+            eth_src_start = stat.match.find("'eth_src': '") + len("'eth_src': '")
+            eth_src_end = stat.match.find("'", eth_src_start)
+            eth_src = stat.match[eth_src_start:eth_src_end]
+
+            # Extracting eth_dst
+            eth_dst_start = stat.match.find("'eth_dst': '") + len("'eth_dst': '")
+            eth_dst_end = stat.match.find("'", eth_dst_start)
+            eth_dst = match_str[eth_dst_start:eth_dst_end]
+            if in_port is not None and dst is not None and src is not None:
+                key = self.generate_key(src,dst,in_port)
+                self.eviction_data_table[key]["hit_count"] = stat.packet_count
+            '''
             
             
             
