@@ -72,17 +72,17 @@ class SimpleMonitor13(app_manager.RyuApp):
      
     #get the table_occupancy globally
     def set_idle_timeout(self, key):
-        global table_occupancy
+        #global table_occupancy
         global totalNUmFLows
         global table_size
         t_init = 1  # Initial value for idle time
         idle_timeout = t_init
         tmax = 30  # Maximum idle time
         
-        
-        print("TABLE OCCUPANCY IS %f" % (table_occupancy))
-        print("TABLE OCCUPANCY IS %f ALTERNATIVE METHOD" % (totalNUmFLows/table_size))
-        #table_occupancy=npacketIn/table_size
+        table_occupancy=totalNUmFLows/table_size
+        #print("TABLE OCCUPANCY IS %f" % (table_occupancy))
+        print("TABLE OCCUPANCY IS %f ALTERNATIVE METHOD" % (table_occupancy)) #the correct one is this, update accordingly
+        table_occupancy=totalNUmFLows/table_size
         
         DeleteThreshold = 90 #for deleting flows from data table
         coef95 = 0.9
@@ -146,7 +146,7 @@ class SimpleMonitor13(app_manager.RyuApp):
     def check_and_delete_entries(self):
         current_time = datetime.now()
         elapsed_time = (current_time - self.start_time).total_seconds()
-        print("ELAPSED TIME %f" % (elapsed_time))
+        #print("ELAPSED TIME %f" % (elapsed_time))
         entries_to_delete = []
         DeleteThreshold = 90  # Define your DeleteThreshold constant here
 
@@ -239,7 +239,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         self.send_flow_stats_request(datapath)
-        print("hello world!")
+        #print("hello world!")
 
 
         # install table-miss flow entry
@@ -279,7 +279,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         global totalNUmFLows
         with totalNumFlows_lock:
             totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
-            print("ARTTIRDIM")
+            #print("ARTTIRDIM")
             ofproto = datapath.ofproto
             parser = datapath.ofproto_parser
             dpid= datapath.id
@@ -309,7 +309,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 packet_count = self.data_table.get(key).get("packet_count", 0)
                 packet_count += 1
                 self.data_table[key]["packet_count"] = packet_count
-                print("arttırıldı", key)
+                #print("arttırıldı", key)
                 #self.eviction_data_table[key]["packet_count"] = packet_count
             else:
                 self.data_table[key] = {"packet_count": 1}  # Initialize packet_count as 1 for the new key
@@ -428,7 +428,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #hit_count += 1
                 #self.eviction_data_table[key]["hit_count"] = hit_count
                 self.eviction_data_table[key]["last_hit_time"] = current_time
-                print("LAST HIT CURRENT TIME", current_time)
+                #print("LAST HIT CURRENT TIME", current_time)
                 
                 
            
@@ -469,16 +469,16 @@ class SimpleMonitor13(app_manager.RyuApp):
                           stat.idle_timeout, stat.hard_timeout, stat.flags,
                           stat.cookie, stat.packet_count, stat.byte_count,
                           stat.match, stat.instructions))
-            print(type(stat.match))
+            #print(type(stat.match))
             if 'in_port' in stat.match and 'eth_src' in stat.match and 'eth_dst' in stat.match:
                 in_port = stat.match['in_port']
                 eth_src = stat.match['eth_src']
                 eth_dst = stat.match['eth_dst']
-                print(in_port)
+                #print(in_port)
                 key = self.generate_key(eth_src,eth_dst,in_port)
                 self.eviction_data_table[key]["hit_count"] = stat.packet_count
-                print(eth_src)
-                print(eth_dst)
+                #print(eth_src)
+                #print(eth_dst)
             
                 
 
@@ -573,7 +573,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             # Update the flow table with the modified flow attributes
             self.data_table[key] = existing_flow_attributes   
             totalNUmFLows -= 1
-            print("AZALTTIM")
+            #print("AZALTTIM")
     
 
 
