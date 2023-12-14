@@ -60,7 +60,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         for key in self.eviction_data_table:
             packet_in = datetime.strptime(self.eviction_data_table[key]["packet_in_time"], "%Y-%m-%d %H:%M:%S")
             last_hit = datetime.strptime(self.eviction_data_table[key]["last_hit_time"], "%Y-%m-%d %H:%M:%S")
-            total_hits = self.eviction_data_table[key]["hit_count"]
+            total_hits = 0
+            if self.eviction_data_table[key].get("hit_count"):
+                total_hits = self.eviction_data_table[key]["hit_count"]
             current_time = datetime.now()
             heuristic = ((last_hit - packet_in).total_seconds()/(current_time-packet_in).total_seconds())* total_hits
             self.eviction_cache[key] = heuristic
