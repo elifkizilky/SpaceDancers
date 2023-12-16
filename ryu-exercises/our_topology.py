@@ -29,29 +29,35 @@ def create_hosts(topo, pcap_file):
     print("before rdpcap")
     pkts = rdpcap(pcap_file)
     print("after rdpcap")
-
+    hostID=1
     
     for pkt in pkts:
+     
         if pkt.haslayer(IP):
+            
             src_ip = pkt[IP].src
             dst_ip = pkt[IP].dst
+           
             if pkt.haslayer(Ether):
                 src_mac = pkt[Ether].src
                 dst_mac = pkt[Ether].dst
             # Check if source host exists, add if not
             if src_ip not in hosts:
-                src_host = topo.addHost('h_' + src_ip.replace('.', '_'))
+                src_host = topo.addHost('h' + str(hostID))
+                #hosts[src_host]= src_ip
                 hosts[src_ip] = src_host
                 macs[src_host]= src_mac
                 topo.addLink(s1,src_host)
+                hostID += 1
     
 
             # Check if destination host exists, add if not
             if dst_ip not in hosts:
-                dst_host = topo.addHost('h_' + dst_ip.replace('.', '_'))
+                dst_host = topo.addHost('h' + str(hostID))
                 hosts[dst_ip] = dst_host
                 macs[dst_host]= dst_mac
                 topo.addLink(s1,dst_host)
+                hostID += 1
      
     return hosts, macs
     
@@ -60,26 +66,44 @@ def set_flow_table_size(switch_name, flow_table_size):
     cmd = f"sudo ovs-vsctl -- --id=@ft create Flow_Table flow_limit={flow_table_size} overflow_policy=refuse -- set Bridge {switch_name} flow_tables=0=@ft"
     subprocess.call(cmd, shell=True) 
 
+
 def start_mininet():
     
     topo = MyTopology()
-    hosts, macs = create_hosts(topo, "univ1_pt1")
+    file_name= "small_univ11"
+    hosts, macs = create_hosts(topo, file_name)
 
     controller = RemoteController('c0', ip='127.0.0.1', port=6633)
     net = Mininet(topo=topo, controller=controller)
     net.start()
 
-    set_flow_table_size('s1', SWITCH_SIZE)
+    #set_flow_table_size('s1', SWITCH_SIZE)
+  
+    base_ip = "10"
+    host_id = 1
     for key, value in hosts.items():
         host= net.getNodeByName(value)
         host.setIP(key)
         host.setMAC(macs[value])
-    time.sleep(5)
+    
+    h1= net.get('h1')
     # Replay the pcap file into Mininet using tcpreplay
-    subprocess.call(["sudo", "tcpreplay", "-i","s1-eth1","--duration" ,"5","univ1_pt1"])
- 
-    CLI(net)  # This drops you into a Mininet command prompt when the script is run
+    #subprocess.call(["sudo", "tcpreplay", "-i","s1-eth1",file_name])
 
+    output=h1.cmd('sudo tcpreplay --intf1=h1-eth0 {}'.format(file_name))
+    
+    # Scapy command as a Python script
+    #scapy_script = "from scapy.all import sendp, Ether, IP; sendp(Ether()/IP(dst='177.230.0.31', ttl=(1,4)), iface='h1-eth0')"
+
+    # Execute the Scapy script using Python on the Mininet host
+    #output = h1.cmd("python -c \"{}\"".format(scapy_script))
+
+    print(output)
+
+ 
+
+      # This drops you into a Mininet command prompt when the script is run
+    CLI(net)
     net.stop()
 
 if __name__ == '__main__':
