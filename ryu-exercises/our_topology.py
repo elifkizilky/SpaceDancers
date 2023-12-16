@@ -6,7 +6,7 @@ from mininet.node import RemoteController
 from scapy.all import *
 import time
 s1 =0
-SWITCH_SIZE= 20
+SWITCH_SIZE= 5
 class MyTopology(Topo):
     def build(self):
         global s1
@@ -77,7 +77,7 @@ def start_mininet():
     net = Mininet(topo=topo, controller=controller)
     net.start()
 
-    #set_flow_table_size('s1', SWITCH_SIZE)
+    set_flow_table_size('s1', SWITCH_SIZE)
   
     base_ip = "10"
     host_id = 1
