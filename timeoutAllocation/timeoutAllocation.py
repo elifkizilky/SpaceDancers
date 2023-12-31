@@ -178,6 +178,7 @@ class SimpleMonitor13(app_manager.RyuApp):
 
     #send stats request every 10s
     def _monitor(self):
+        global rejected_flows
         while True:
             for dp in self.datapaths.values():
                 self._request_stats(dp)
@@ -186,6 +187,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 self.check_and_delete_entries()
                 print("Data table: ", self.display_data_table())
                 print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
+                print("REJECTED FLOWS", rejected_flows)
                 self.calculate_heuristic()
             
             hub.sleep(20)
@@ -393,6 +395,7 @@ class SimpleMonitor13(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
+        global rejected_flows
         # If you hit this you might want to increase
         # the "miss_send_length" of your switch
         if ev.msg.msg_len < ev.msg.total_len:
@@ -415,7 +418,8 @@ class SimpleMonitor13(app_manager.RyuApp):
 
         dpid = datapath.id
         self.mac_to_port.setdefault(dpid, {})
-
+        
+        key = self.generate_key(src, dst, in_port)
       
 
        
@@ -439,10 +443,14 @@ class SimpleMonitor13(app_manager.RyuApp):
             if msg.buffer_id != ofproto.OFP_NO_BUFFER:
                 if totalNUmFLows < table_size:
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id)
+                elif key not in self.data_table: #check this condition??
+                    rejected_flows += 1
                 return
             else:
                 if totalNUmFLows < table_size:
                     self.add_flow(datapath, 1, match, actions)
+                elif key not in self.data_table:
+                    rejected_flows += 1
 
         data = None
         if msg.buffer_id == ofproto.OFP_NO_BUFFER:
