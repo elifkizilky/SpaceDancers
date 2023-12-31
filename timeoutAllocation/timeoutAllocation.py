@@ -41,6 +41,7 @@ table_size=5  #just reading
 #npacketIn=0
 totalNUmFLows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
+rejected_flows = 0
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
@@ -72,17 +73,17 @@ class SimpleMonitor13(app_manager.RyuApp):
      
     #get the table_occupancy globally
     def set_idle_timeout(self, key):
-        #global table_occupancy
+        global table_occupancy
         global totalNUmFLows
         global table_size
         t_init = 1  # Initial value for idle time
         idle_timeout = t_init
         tmax = 30  # Maximum idle time
         
-        table_occupancy=totalNUmFLows/table_size
+        #table_occupancy=totalNUmFLows/table_size
         #print("TABLE OCCUPANCY IS %f" % (table_occupancy))
         print("TABLE OCCUPANCY IS %f ALTERNATIVE METHOD" % (table_occupancy)) #the correct one is this, update accordingly
-        table_occupancy=totalNUmFLows/table_size
+        #table_occupancy=totalNUmFLows/table_size
         
         DeleteThreshold = 90 #for deleting flows from data table
         coef95 = 0.9
@@ -95,7 +96,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             tlastDuration = self.data_table.get(key).get('last_duration', 0)
             
             
-                
+              
             npacketIn = self.data_table.get(key).get('packet_count', 0)
             #npacketIn += 1
             print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
@@ -103,10 +104,15 @@ class SimpleMonitor13(app_manager.RyuApp):
                 idle_timeout = min(t_init * 2 ** npacketIn, tmax)
             elif table_occupancy <= 0.95:
                 tmax = tmax * coef95 - b_value
-                tpacketIn = self.data_table.get(key).get('last_packet_in', 0)
-                tlastRemoved = self.data_table.get(key).get('last_removed', 0)
-                if tpacketIn - tlastRemoved <= tlastDuration:
-                    idle_timeout = min(tlastDuration + tpacketIn - tlastRemoved, tmax)
+                
+                tpacketInStr = self.data_table.get(key).get('last_packet_in', "")
+                tlastRemovedStr = self.data_table.get(key).get('last_removed', "")
+                if tpacketInStr and tlastRemovedStr:
+                    date_format="%Y-%m-%d %H:%M:%S"
+                    tpacketIn=datetime.strptime(tpacketInStr,date_format)
+                    tlastRemoved=datetime.strptime(tlastRemovedStr,date_format)
+                    if (tpacketIn - tlastRemoved).total_seconds() <= tlastDuration:
+                        idle_timeout = min(tlastDuration + (tpacketIn - tlastRemoved).total_seconds(), tmax)
                 else:
                     idle_timeout = tlastDuration
             elif table_occupancy > 0.95:
@@ -174,7 +180,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             for dp in self.datapaths.values():
                 self._request_stats(dp)
                 #self.remove_flow(dp, 2)
-                self.send_table_stats_request(dp)
+                #self.send_table_stats_request(dp)
                 self.check_and_delete_entries()
                 print("Data table: ", self.data_table)
                 print("DATA TABLE FOR PROACTIVE", self.eviction_data_table)
@@ -218,20 +224,7 @@ class SimpleMonitor13(app_manager.RyuApp):
 
         
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
-    def _port_stats_reply_handler(self, ev):
-        body = ev.msg.body
-
-        self.logger.info('datapath         port     '
-                         'rx-pkts  rx-bytes rx-error '
-                         'tx-pkts  tx-bytes tx-error')
-        self.logger.info('---------------- -------- '
-                         '-------- -------- -------- '
-                         '-------- -------- --------')
-        for stat in sorted(body, key=attrgetter('port_no')):
-            self.logger.info('%016x %8x %8d %8d %8d %8d %8d %8d',
-                             ev.msg.datapath.id, stat.port_no,
-                             stat.rx_packets, stat.rx_bytes, stat.rx_errors,
-                             stat.tx_packets, stat.tx_bytes, stat.tx_errors)
+    
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -278,7 +271,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         global cookie
         global totalNUmFLows
         with totalNumFlows_lock:
-            totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
+            
             #print("ARTTIRDIM")
             ofproto = datapath.ofproto
             parser = datapath.ofproto_parser
@@ -344,6 +337,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             self.data_table[key] = existing_flow_attributes
                     
             datapath.send_msg(mod)
+            totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
 
     def remove_flow(self, datapath, cookie):
         ofproto = datapath.ofproto
@@ -405,10 +399,12 @@ class SimpleMonitor13(app_manager.RyuApp):
             # verify if we have a valid buffer_id, if yes avoid to send both
             # flow_mod & packet_out
             if msg.buffer_id != ofproto.OFP_NO_BUFFER:
-                self.add_flow(datapath, 1, match, actions, msg.buffer_id)
+                if totalNUmFLows < table_size:
+                    self.add_flow(datapath, 1, match, actions, msg.buffer_id)
                 return
             else:
-                self.add_flow(datapath, 1, match, actions)
+                if totalNUmFLows < table_size:
+                    self.add_flow(datapath, 1, match, actions)
 
         data = None
         if msg.buffer_id == ofproto.OFP_NO_BUFFER:
@@ -515,6 +511,7 @@ class SimpleMonitor13(app_manager.RyuApp):
     def flow_removed_handler(self, ev):
         global totalNUmFLows
         with totalNumFlows_lock:
+            
             msg = ev.msg
             dp = msg.datapath
             ofp = dp.ofproto
@@ -573,6 +570,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             # Update the flow table with the modified flow attributes
             self.data_table[key] = existing_flow_attributes   
             totalNUmFLows -= 1
+            
             #print("AZALTTIM")
     
 
