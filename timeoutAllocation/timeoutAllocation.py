@@ -24,6 +24,8 @@ from ryu.lib.packet import ether_types
 import time
 import hashlib
 from datetime import datetime, timedelta
+from prettytable import PrettyTable
+
 
 #added for stats request
 from ryu.lib import hub
@@ -182,13 +184,22 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #self.remove_flow(dp, 2)
                 #self.send_table_stats_request(dp)
                 self.check_and_delete_entries()
-                print("Data table: ", self.data_table)
-                print("DATA TABLE FOR PROACTIVE", self.eviction_data_table)
+                print("Data table: ", self.display_data_table())
+                print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                 self.calculate_heuristic()
             
             hub.sleep(20)
 
+    def display_data_table(self):
+        table = PrettyTable()
+        table.field_names = ["Key", "Packet Count", "Last Packet In", "Other Attributes..."]
 
+        for key, attributes in self.data_table.items():
+            table.add_row([key, attributes.get("packet_count"), attributes.get("last_packet_in"), "..."])
+
+        print('Data Table:\n' + table.get_string())
+        
+        
     def _request_stats(self, datapath):
         self.logger.debug('send stats request: %016x', datapath.id)
         ofproto = datapath.ofproto
@@ -200,16 +211,42 @@ class SimpleMonitor13(app_manager.RyuApp):
         req = parser.OFPPortStatsRequest(datapath, 0, ofproto.OFPP_ANY)
         datapath.send_msg(req)
 
+
+    def display_eviction_data_table(self):
+        table = PrettyTable()
+        table.field_names = ["Key", "Idle Timeout", "Packet In Time", "Last Hit Time", "Other Attributes..."]
+
+        for key, attributes in self.eviction_data_table.items():
+            table.add_row([key, attributes.get("idle_timeout"), attributes.get("packet_in_time"), attributes.get("last_hit_time"), "..."])
+
+        print('Eviction Data Table:\n' + table.get_string())
+    
+    
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def _flow_stats_reply_handler(self, ev):
         body = ev.msg.body
+        table = PrettyTable()
+        table.field_names = ["Table ID", "Duration (Sec)", "Priority", "Idle Timeout", "Hard Timeout", "Cookie", "Packet Count", "Byte Count", "Match", "Instructions"]
 
-        self.logger.info('datapath         '
-                         'in-port  eth-dst           '
-                         'out-port packets  bytes')
-        self.logger.info('---------------- '
-                         '-------- ----------------- '
-                         '-------- -------- --------')
+        for stat in ev.msg.body:
+            table.add_row([stat.table_id,
+                       f"{stat.duration_sec} s",
+                       stat.priority,
+                       stat.idle_timeout,
+                       stat.hard_timeout,
+                       stat.cookie,
+                       stat.packet_count,
+                       stat.byte_count,
+                       stat.match,
+                       stat.instructions])
+
+        self.logger.info('FlowStats:\n' + table.get_string())
+        #self.logger.info('datapath         '
+        #                'in-port  eth-dst           '
+        #                'out-port packets  bytes')
+        #self.logger.info('---------------- '
+        #                '-------- ----------------- '
+        #               '-------- -------- --------')
         
         
 
