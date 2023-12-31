@@ -306,6 +306,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #self.eviction_data_table[key]["packet_count"] = packet_count
             else:
                 self.data_table[key] = {"packet_count": 1}  # Initialize packet_count as 1 for the new key
+                totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
                 #self.eviction_data_table[key] = {"packet_count": 1}
                 #self.eviction_data_table[key] = {"hit_count": 1}
             
@@ -337,7 +338,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             self.data_table[key] = existing_flow_attributes
                     
             datapath.send_msg(mod)
-            totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
+           
 
     def remove_flow(self, datapath, cookie):
         ofproto = datapath.ofproto
