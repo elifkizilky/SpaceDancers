@@ -331,7 +331,8 @@ class SimpleMonitor13(app_manager.RyuApp):
             flags = ofproto.OFPFF_SEND_FLOW_REM
             
             if key in self.flow_table:
-                allocatedTimeout = self.data_table[key].get("idle_timeout", 0)
+                if key in self.data_table:
+                    allocatedTimeout = self.data_table[key].get("idle_timeout", 0)
             else:
                 allocatedTimeout = self.set_idle_timeout(key)
                 
