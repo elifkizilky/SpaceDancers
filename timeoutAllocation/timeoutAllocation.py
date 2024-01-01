@@ -39,7 +39,7 @@ import threading
 totalNumFlows_lock = threading.Lock()
 
 cookie=0
-table_size=5  #just reading
+table_size=20  #just reading
 #npacketIn=0
 totalNUmFLows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -56,6 +56,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.datapaths = {}
         self.start_time = datetime.now()
         self.monitor_thread = hub.spawn(self._monitor)
+        self.flow_table = []
        
         
     #calculate heuristic
@@ -75,14 +76,14 @@ class SimpleMonitor13(app_manager.RyuApp):
      
     #get the table_occupancy globally
     def set_idle_timeout(self, key):
-        global table_occupancy
+        #global table_occupancy
         global totalNUmFLows
         global table_size
         t_init = 1  # Initial value for idle time
         idle_timeout = t_init
-        tmax = 30  # Maximum idle time
+        tmax = 32  # Maximum idle time
         
-        #table_occupancy=totalNUmFLows/table_size
+        table_occupancy=totalNUmFLows/table_size
         #print("TABLE OCCUPANCY IS %f" % (table_occupancy))
         print("TABLE OCCUPANCY IS %f ALTERNATIVE METHOD" % (table_occupancy)) #the correct one is this, update accordingly
         #table_occupancy=totalNUmFLows/table_size
@@ -104,7 +105,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
             if table_occupancy <=  0.75:
                 idle_timeout = min(t_init * 2 ** npacketIn, tmax)
-            elif table_occupancy <= 0.95:
+            elif table_occupancy <= 0.95: #there is a mistake in here
                 tmax = tmax * coef95 - b_value
                 
                 tpacketInStr = self.data_table.get(key).get('last_packet_in', "")
@@ -114,13 +115,16 @@ class SimpleMonitor13(app_manager.RyuApp):
                     tpacketIn=datetime.strptime(tpacketInStr,date_format)
                     tlastRemoved=datetime.strptime(tlastRemovedStr,date_format)
                     if (tpacketIn - tlastRemoved).total_seconds() <= tlastDuration:
+                       
                         idle_timeout = min(tlastDuration + (tpacketIn - tlastRemoved).total_seconds(), tmax)
+                        print("timeout sıfır gelmiş mi?", idle_timeout) 
                 else:
                     idle_timeout = tlastDuration
             elif table_occupancy > 0.95:
                 idle_timeout = 1
             
-    
+       
+       
         return idle_timeout
         
 
@@ -194,10 +198,10 @@ class SimpleMonitor13(app_manager.RyuApp):
 
     def display_data_table(self):
         table = PrettyTable()
-        table.field_names = ["Key", "Packet Count", "Last Packet In", "Other Attributes..."]
+        table.field_names = ["Key", "Packet Count", "Last Packet In", "Last Removed", "Last Duration", "Idle timeout"]
 
         for key, attributes in self.data_table.items():
-            table.add_row([key, attributes.get("packet_count"), attributes.get("last_packet_in"), "..."])
+            table.add_row([key, attributes.get("packet_count"), attributes.get("last_packet_in"), attributes.get("last_removed"), attributes.get("last_duration"), attributes.get("idle_timeout")])
 
         print('Data Table:\n' + table.get_string())
         
@@ -216,10 +220,10 @@ class SimpleMonitor13(app_manager.RyuApp):
 
     def display_eviction_data_table(self):
         table = PrettyTable()
-        table.field_names = ["Key", "Idle Timeout", "Packet In Time", "Last Hit Time", "Other Attributes..."]
+        table.field_names = ["Key", "Idle Timeout", "Packet In Time", "Last Hit Time", "Total number of hits"]
 
         for key, attributes in self.eviction_data_table.items():
-            table.add_row([key, attributes.get("idle_timeout"), attributes.get("packet_in_time"), attributes.get("last_hit_time"), "..."])
+            table.add_row([key, attributes.get("idle_timeout"), attributes.get("packet_in_time"), attributes.get("last_hit_time"), attributes.get("hit_count")])
 
         print('Eviction Data Table:\n' + table.get_string())
     
@@ -252,14 +256,14 @@ class SimpleMonitor13(app_manager.RyuApp):
         
         
 
-        for stat in sorted([flow for flow in body if flow.priority == 1],
-                           key=lambda flow: (flow.match['in_port'],
-                                             flow.match['eth_dst'])):
-            self.logger.info('%016x %8x %17s %8x %8d %8d',
-                             ev.msg.datapath.id,
-                             stat.match['in_port'], stat.match['eth_dst'],
-                             stat.instructions[0].actions[0].port,
-                             stat.packet_count, stat.byte_count)
+        #for stat in sorted([flow for flow in body if flow.priority == 1],
+        #                   key=lambda flow: (flow.match['in_port'],
+        #                                     flow.match['eth_dst'])):
+        #    self.logger.info('%016x %8x %17s %8x %8d %8d',
+        #                     ev.msg.datapath.id,
+        #                     stat.match['in_port'], stat.match['eth_dst'],
+        #                     stat.instructions[0].actions[0].port,
+        #                     stat.packet_count, stat.byte_count)
 
         
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
@@ -324,7 +328,11 @@ class SimpleMonitor13(app_manager.RyuApp):
                                                 actions)]
             flags = ofproto.OFPFF_SEND_FLOW_REM
             
-            allocatedTimeout = self.set_idle_timeout(key)
+            if key in self.flow_table:
+                allocatedTimeout = self.data_table[key].get("idle_timeout", 0)
+            else:
+                allocatedTimeout = self.set_idle_timeout(key)
+                
             print("ALLOCATED TIMEOUT FOR THE FLOW %s IS %d" % (key, allocatedTimeout))
             if buffer_id:
                 mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
@@ -341,15 +349,18 @@ class SimpleMonitor13(app_manager.RyuApp):
                 packet_count = self.data_table.get(key).get("packet_count", 0)
                 packet_count += 1
                 self.data_table[key]["packet_count"] = packet_count
+                self.data_table[key]["idle_timeout"] = allocatedTimeout
                 #print("arttırıldı", key)
                 #self.eviction_data_table[key]["packet_count"] = packet_count
             else:
                 self.data_table[key] = {"packet_count": 1}  # Initialize packet_count as 1 for the new key
                 totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
+                self.flow_table.append(key)
+                self.data_table[key] = {"idle_timeout": allocatedTimeout}
                 #self.eviction_data_table[key] = {"packet_count": 1}
                 #self.eviction_data_table[key] = {"hit_count": 1}
             
-          
+
             #idle_timeout of the flow for proactive eviction data table
             if key not in self.eviction_data_table:
                 # If the key doesn't exist, set the value for the key using setdefault
@@ -548,7 +559,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             
             
         self.logger.debug('FlowStats: %s', flows)
-        print('FlowStats: %s' % flows)
+        #print('FlowStats: %s' % flows)
         
         
         
@@ -616,6 +627,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             # Update the flow table with the modified flow attributes
             self.data_table[key] = existing_flow_attributes   
             totalNUmFLows -= 1
+            self.flow_table.remove(key)
             
             #print("AZALTTIM")
     
