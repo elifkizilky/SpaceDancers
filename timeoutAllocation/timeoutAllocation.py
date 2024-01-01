@@ -84,8 +84,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         tmax = 32  # Maximum idle time
         
         table_occupancy=totalNUmFLows/table_size
-        #print("TABLE OCCUPANCY IS %f" % (table_occupancy))
-        print("TABLE OCCUPANCY IS %f ALTERNATIVE METHOD" % (table_occupancy)) #the correct one is this, update accordingly
+        print("TABLE OCCUPANCY IS %f" % (table_occupancy))
+        #print("TABLE OCCUPANCY IS %f ALTERNATIVE METHOD" % (table_occupancy)) #the correct one is this, update accordingly
         #table_occupancy=totalNUmFLows/table_size
         
         DeleteThreshold = 90 #for deleting flows from data table
@@ -98,7 +98,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         else:
             npacketIn = self.data_table.get(key).get('packet_count', 1)
             #npacketIn += 1
-            print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
+            #print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
             if table_occupancy <=  0.75:
                 idle_timeout = min(t_init * 2 ** npacketIn, tmax)
             elif table_occupancy <= 0.95: #there is a mistake in here
@@ -115,9 +115,12 @@ class SimpleMonitor13(app_manager.RyuApp):
                     if (tpacketIn - tlastRemoved).total_seconds() <= tlastDuration:
                        
                         idle_timeout = min(tlastDuration + (tpacketIn - tlastRemoved).total_seconds(), tmax)
-                        print("timeout sıfır gelmiş mi?", idle_timeout) 
+                       
                 else:
-                    idle_timeout = tlastDuration
+                    if int(tlastDuration) > 0: 
+                        idle_timeout = int(tlastDuration)
+                    else:
+                        idle_timeout = 1
             elif table_occupancy > 0.95:
                 idle_timeout = 1
             
@@ -187,12 +190,13 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #self.remove_flow(dp, 2)
                 #self.send_table_stats_request(dp)
                 self.check_and_delete_entries()
-                print("Data table: ", self.display_data_table())
+                #print("Data table: ", self.display_data_table())
+                self.display_data_table()
                 print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                 print("REJECTED FLOWS", rejected_flows)
                 self.calculate_heuristic()
             
-            hub.sleep(1)
+            hub.sleep(20)
 
     def display_data_table(self):
         table = PrettyTable()
@@ -648,8 +652,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                         (stat.table_id, stat.active_count,
                         stat.lookup_count, stat.matched_count))
             if stat.table_id==0:
-                print('TableStats: %s', stat)
-                print("flow table ratio: %s" % (stat.active_count/table_size*100))
+                #print('TableStats: %s', stat)
+                #print("flow table ratio: %s" % (stat.active_count/table_size*100))
                 table_occupancy = (stat.active_count/table_size*100)
         
         self.logger.debug('TableStats: %s', tables)
