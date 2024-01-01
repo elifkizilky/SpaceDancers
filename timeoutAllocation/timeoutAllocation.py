@@ -344,9 +344,19 @@ class SimpleMonitor13(app_manager.RyuApp):
                     allocatedTimeout = self.data_table[key].get("idle_timeout", 0)
                 else:
                     allocatedTimeout = self.set_idle_timeout(key)
+             
             else:
                 allocatedTimeout = self.set_idle_timeout(key)
                 
+                if key in self.data_table:
+                    packet_count = self.data_table.get(key).get("packet_count", 0)
+                    packet_count += 1
+                    self.data_table[key]["packet_count"] = packet_count
+                    
+                else:
+                    self.data_table[key] = {"packet_count" : 1}
+            
+            
             print("ALLOCATED TIMEOUT FOR THE FLOW %s IS %d" % (key, allocatedTimeout))
             if buffer_id:
                 mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
@@ -360,14 +370,11 @@ class SimpleMonitor13(app_manager.RyuApp):
             
             self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
             if key in self.data_table:
-                packet_count = self.data_table.get(key).get("packet_count", 0)
-                packet_count += 1
-                self.data_table[key]["packet_count"] = packet_count
                 self.data_table[key]["idle_timeout"] = allocatedTimeout
                 #print("arttırıldı", key)
                 #self.eviction_data_table[key]["packet_count"] = packet_count
             else:
-                self.data_table[key] = {"packet_count": 1, "idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
+                self.data_table[key] = {"idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
             
             if key not in self.flow_table:
                 totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
