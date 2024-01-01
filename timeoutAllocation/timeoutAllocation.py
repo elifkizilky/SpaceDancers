@@ -376,9 +376,20 @@ class SimpleMonitor13(app_manager.RyuApp):
             else:
                 self.data_table[key] = {"idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
             
+            current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
             if key not in self.flow_table:
                 totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
                 self.flow_table.add(key)
+                existing_flow_attributes = self.data_table.get(key, {})
+
+                # Get the current time in a suitable format
+                
+
+                # Update only the last_packet_in attribute, preserving other attributes
+                existing_flow_attributes['last_packet_in'] = current_time
+            
+                
+                self.data_table[key] = existing_flow_attributes
                 #print("FLOW TABLEEEE", self.flow_table)
                
                 #self.eviction_data_table[key] = {"packet_count": 1}
@@ -398,18 +409,19 @@ class SimpleMonitor13(app_manager.RyuApp):
             
             # Get the existing flow attributes (assuming you have access to flow-specific identifier, e.g., cookie)
         
-            existing_flow_attributes = self.data_table.get(key, {})
+            #existing_flow_attributes = self.data_table.get(key, {})
 
             # Get the current time in a suitable format
-            current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            #current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
             # Update only the last_packet_in attribute, preserving other attributes
-            existing_flow_attributes['last_packet_in'] = current_time
+            #existing_flow_attributes['last_packet_in'] = current_time
             
+            #self.eviction_data_table[key]["packet_in_time"] = current_time
             self.eviction_data_table[key]["packet_in_time"] = current_time
             self.eviction_data_table[key]["last_hit_time"] = current_time #this is the first last_hit_time
             # Update the flow table with the modified flow attributes
-            self.data_table[key] = existing_flow_attributes
+            #self.data_table[key] = existing_flow_attributes
                     
             datapath.send_msg(mod)
            
