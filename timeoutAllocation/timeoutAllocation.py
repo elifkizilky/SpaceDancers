@@ -39,7 +39,7 @@ import threading
 totalNumFlows_lock = threading.Lock()
 
 cookie=0
-table_size=20  #just reading
+table_size=300  #just reading
 #npacketIn=0
 totalNUmFLows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -56,7 +56,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.datapaths = {}
         self.start_time = datetime.now()
         self.monitor_thread = hub.spawn(self._monitor)
-        self.flow_table = []
+        self.flow_table = set()
        
         
     #calculate heuristic
@@ -94,6 +94,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         
         if key not in self.data_table:
             idle_timeout = t_init  # Initialize idle time
+            print("1. print", idle_timeout)
             npacketIn = 1
         else:
             npacketIn = self.data_table.get(key).get('packet_count', 1)
@@ -101,6 +102,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             #print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
             if table_occupancy <=  0.75:
                 idle_timeout = min(t_init * 2 ** npacketIn, tmax)
+                print("2. print", idle_timeout)
             elif table_occupancy <= 0.95: #there is a mistake in here
                 tmax = tmax * coef95 - b_value
                 date_format="%Y-%m-%d %H:%M:%S"
@@ -115,14 +117,20 @@ class SimpleMonitor13(app_manager.RyuApp):
                     if (tpacketIn - tlastRemoved).total_seconds() <= tlastDuration:
                        
                         idle_timeout = min(tlastDuration + (tpacketIn - tlastRemoved).total_seconds(), tmax)
+                        if idle_timeout <  1:
+                            idle_timeout = 1
+                        print("3. print", idle_timeout)
                        
                 else:
                     if int(tlastDuration) > 0: 
                         idle_timeout = int(tlastDuration)
+                        print("4. print", idle_timeout)
                     else:
                         idle_timeout = 1
+                        print("5. print", idle_timeout)
             elif table_occupancy > 0.95:
                 idle_timeout = 1
+                print("6. print", idle_timeout)
             
        
        
@@ -195,6 +203,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                 print("REJECTED FLOWS", rejected_flows)
                 self.calculate_heuristic()
+                print("FLOW TABLE", self.flow_table)
             
             hub.sleep(20)
 
@@ -362,7 +371,8 @@ class SimpleMonitor13(app_manager.RyuApp):
             
             if key not in self.flow_table:
                 totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
-                self.flow_table.append(key)
+                self.flow_table.add(key)
+                #print("FLOW TABLEEEE", self.flow_table)
                
                 #self.eviction_data_table[key] = {"packet_count": 1}
                 #self.eviction_data_table[key] = {"hit_count": 1}
@@ -461,13 +471,13 @@ class SimpleMonitor13(app_manager.RyuApp):
             if msg.buffer_id != ofproto.OFP_NO_BUFFER:
                 if totalNUmFLows < table_size:
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id)
-                elif key not in self.data_table: #check this condition??
+                elif key not in self.flow_table: #check this condition??
                     rejected_flows += 1
                 return
             else:
                 if totalNUmFLows < table_size:
                     self.add_flow(datapath, 1, match, actions)
-                elif key not in self.data_table:
+                elif key not in self.flow_table:
                     rejected_flows += 1
 
         data = None
@@ -634,7 +644,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             # Update the flow table with the modified flow attributes
             self.data_table[key] = existing_flow_attributes   
             totalNUmFLows -= 1
-            self.flow_table.remove(key)
+            self.flow_table.discard(key)
             
             #print("AZALTTIM")
     
