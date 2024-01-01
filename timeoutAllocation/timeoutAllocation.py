@@ -189,7 +189,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 self._request_stats(dp)
                 #self.remove_flow(dp, 2)
                 #self.send_table_stats_request(dp)
-                self.check_and_delete_entries()
+                #self.check_and_delete_entries() #sonra aç
                 #print("Data table: ", self.display_data_table())
                 self.display_data_table()
                 print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
@@ -333,6 +333,8 @@ class SimpleMonitor13(app_manager.RyuApp):
             if key in self.flow_table:
                 if key in self.data_table:
                     allocatedTimeout = self.data_table[key].get("idle_timeout", 0)
+                else:
+                    allocatedTimeout = self.set_idle_timeout(key)
             else:
                 allocatedTimeout = self.set_idle_timeout(key)
                 
