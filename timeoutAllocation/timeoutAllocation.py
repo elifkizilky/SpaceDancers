@@ -96,22 +96,20 @@ class SimpleMonitor13(app_manager.RyuApp):
             idle_timeout = t_init  # Initialize idle time
             npacketIn = 1
         else:
-            tlastDuration = self.data_table.get(key).get('last_duration', 0)
-            
-            
-              
-            npacketIn = self.data_table.get(key).get('packet_count', 0)
+            npacketIn = self.data_table.get(key).get('packet_count', 1)
             #npacketIn += 1
             print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
             if table_occupancy <=  0.75:
                 idle_timeout = min(t_init * 2 ** npacketIn, tmax)
             elif table_occupancy <= 0.95: #there is a mistake in here
                 tmax = tmax * coef95 - b_value
-                
-                tpacketInStr = self.data_table.get(key).get('last_packet_in', "")
-                tlastRemovedStr = self.data_table.get(key).get('last_removed', "")
+                date_format="%Y-%m-%d %H:%M:%S"
+                tpacketInStr = self.data_table.get(key).get('last_packet_in', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                tlastRemovedStr = self.data_table.get(key).get('last_removed', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                tlastDuration = self.data_table.get(key).get('last_duration', (datetime.strptime(tpacketInStr,date_format) - datetime.strptime(tlastRemovedStr,date_format)).total_seconds())
+    
                 if tpacketInStr and tlastRemovedStr:
-                    date_format="%Y-%m-%d %H:%M:%S"
+                    
                     tpacketIn=datetime.strptime(tpacketInStr,date_format)
                     tlastRemoved=datetime.strptime(tlastRemovedStr,date_format)
                     if (tpacketIn - tlastRemoved).total_seconds() <= tlastDuration:
@@ -194,7 +192,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 print("REJECTED FLOWS", rejected_flows)
                 self.calculate_heuristic()
             
-            hub.sleep(20)
+            hub.sleep(1)
 
     def display_data_table(self):
         table = PrettyTable()
@@ -256,14 +254,14 @@ class SimpleMonitor13(app_manager.RyuApp):
         
         
 
-        #for stat in sorted([flow for flow in body if flow.priority == 1],
-        #                   key=lambda flow: (flow.match['in_port'],
-        #                                     flow.match['eth_dst'])):
-        #    self.logger.info('%016x %8x %17s %8x %8d %8d',
-        #                     ev.msg.datapath.id,
-        #                     stat.match['in_port'], stat.match['eth_dst'],
-        #                     stat.instructions[0].actions[0].port,
-        #                     stat.packet_count, stat.byte_count)
+        for stat in sorted([flow for flow in body if flow.priority == 1],
+                           key=lambda flow: (flow.match['in_port'],
+                                             flow.match['eth_dst'])):
+            self.logger.info('%016x %8x %17s %8x %8d %8d',
+                             ev.msg.datapath.id,
+                             stat.match['in_port'], stat.match['eth_dst'],
+                             stat.instructions[0].actions[0].port,
+                             stat.packet_count, stat.byte_count)
 
         
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
@@ -353,10 +351,12 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #print("arttırıldı", key)
                 #self.eviction_data_table[key]["packet_count"] = packet_count
             else:
-                self.data_table[key] = {"packet_count": 1}  # Initialize packet_count as 1 for the new key
+                self.data_table[key] = {"packet_count": 1, "idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
+            
+            if key not in self.flow_table:
                 totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
                 self.flow_table.append(key)
-                self.data_table[key] = {"idle_timeout": allocatedTimeout}
+               
                 #self.eviction_data_table[key] = {"packet_count": 1}
                 #self.eviction_data_table[key] = {"hit_count": 1}
             
