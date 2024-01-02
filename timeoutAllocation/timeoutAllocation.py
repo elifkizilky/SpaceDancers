@@ -39,11 +39,12 @@ import threading
 totalNumFlows_lock = threading.Lock()
 
 cookie=0
-table_size=300  #just reading
+table_size=50  #just reading
 #npacketIn=0
 totalNUmFLows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
 rejected_flows = 0
+total_packet_in_count = 0
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
@@ -61,19 +62,21 @@ class SimpleMonitor13(app_manager.RyuApp):
         
     #calculate heuristic
     def calculate_heuristic(self):
+        
         for key in self.eviction_data_table:
-            packet_in = datetime.strptime(self.eviction_data_table[key]["packet_in_time"], "%Y-%m-%d %H:%M:%S")
-            last_hit = datetime.strptime(self.eviction_data_table[key]["last_hit_time"], "%Y-%m-%d %H:%M:%S")
-            total_hits = 0
-            if self.eviction_data_table[key].get("hit_count"):
-                total_hits = self.eviction_data_table[key]["hit_count"]
-            current_time = datetime.now()
-            #heuristic = ((last_hit - packet_in).total_seconds()/(current_time-packet_in).total_seconds())* total_hits
-            self.eviction_data_table[key]["time passed now"] = (current_time-packet_in).total_seconds()
-            heuristic = total_hits/( self.eviction_data_table[key]["time passed now"])
-            
-            self.eviction_cache.setdefault(key, {})["heuristics"] = heuristic
-            self.eviction_data_table[key]["heuristics"] = heuristic
+            if key in self.flow_table:
+                packet_in = datetime.strptime(self.eviction_data_table[key]["packet_in_time"], "%Y-%m-%d %H:%M:%S")
+                #last_hit = datetime.strptime(self.eviction_data_table[key]["last_hit_time"], "%Y-%m-%d %H:%M:%S")
+                total_hits = 0
+                if self.eviction_data_table[key].get("hit_count"):
+                    total_hits = self.eviction_data_table[key]["hit_count"]
+                current_time = datetime.now()
+                #heuristic = ((last_hit - packet_in).total_seconds()/(current_time-packet_in).total_seconds())* total_hits
+                self.eviction_data_table[key]["time passed now"] = (current_time-packet_in).total_seconds()
+                heuristic = total_hits/( self.eviction_data_table[key]["time passed now"])
+                
+                self.eviction_cache.setdefault(key, {})["heuristics"] = heuristic
+                self.eviction_data_table[key]["heuristics"] = heuristic
         table = PrettyTable()
         table.field_names = ["Key", "heuristics"]
 
@@ -201,19 +204,25 @@ class SimpleMonitor13(app_manager.RyuApp):
     #send stats request every 10s
     def _monitor(self):
         global rejected_flows
+        global table_occupancy
+        global total_packet_in_count
         while True:
             for dp in self.datapaths.values():
                 self._request_stats(dp)
                
                 #self.remove_flow(dp, 2)
-                #self.send_table_stats_request(dp)
+                self.send_table_stats_request(dp)
+                self.send_meter_stats_request(dp)
                 #self.check_and_delete_entries() #sonra aç
                 #print("Data table: ", self.display_data_table())
                 self.display_data_table()
                 #self.calculate_heuristic()
                 #print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                 print("REJECTED FLOWS", rejected_flows)
-                print("FLOW TABLE", self.flow_table)
+                #print("FLOW TABLE", self.flow_table)
+                print("TOTAL PACKET COUNT", total_packet_in_count)
+                print("TABLE OCCUPANCY", table_occupancy)
+                
             
             hub.sleep(5)
 
@@ -241,10 +250,10 @@ class SimpleMonitor13(app_manager.RyuApp):
 
     def display_eviction_data_table(self):
         table = PrettyTable()
-        table.field_names = ["Key", "Idle Timeout", "Packet In Time", "Last Hit Time", "Total number of hits", "Heuristics", "Time Passed Until Now"]
+        table.field_names = ["Key", "Idle Timeout", "Packet In Time", "Total number of hits", "Heuristics", "Time Passed Until Now"]
 
         for key, attributes in self.eviction_data_table.items():
-            table.add_row([key, attributes.get("idle_timeout"), attributes.get("packet_in_time"), attributes.get("last_hit_time"), attributes.get("hit_count"), attributes.get("heuristics"), attributes.get("time passed now")])
+            table.add_row([key, attributes.get("idle_timeout"), attributes.get("packet_in_time"), attributes.get("hit_count"), attributes.get("heuristics"), attributes.get("time passed now")])
 
         print('Eviction Data Table:\n' + table.get_string())
     
@@ -334,6 +343,7 @@ class SimpleMonitor13(app_manager.RyuApp):
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         global cookie
         global totalNUmFLows
+        global total_packet_in_count
         with totalNumFlows_lock:
           
             ofproto = datapath.ofproto
@@ -420,11 +430,11 @@ class SimpleMonitor13(app_manager.RyuApp):
                 # If the key doesn't exist, set the value for the key using setdefault
                 self.eviction_data_table.setdefault(key, {})["idle_timeout"] = allocatedTimeout
                 
-                self.eviction_data_table[key]["last_hit_time"] = current_time 
+                #self.eviction_data_table[key]["last_hit_time"] = current_time 
             else:
                 # If the key exists, update the value
                 self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
-                self.eviction_data_table[key]["last_hit_time"] = current_time 
+                #self.eviction_data_table[key]["last_hit_time"] = current_time 
            
                 
             
@@ -445,6 +455,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             #self.data_table[key] = existing_flow_attributes
                     
             datapath.send_msg(mod)
+            total_packet_in_count += 1
            
 
     def remove_flow(self, datapath, cookie):
@@ -606,10 +617,11 @@ class SimpleMonitor13(app_manager.RyuApp):
                 eth_dst = stat.match['eth_dst']
                 #print(in_port)
                 key = self.generate_key(eth_src,eth_dst,in_port)
-                if key in self.eviction_data_table:
-                    self.eviction_data_table[key]["hit_count"] = stat.packet_count
-                else:
-                    self.eviction_data_table.setdefault(key, {})["hit_count"] = stat.packet_count
+                if key in self.flow_table:
+                    if key in self.eviction_data_table:
+                        self.eviction_data_table[key]["hit_count"] = stat.packet_count
+                    else:
+                        self.eviction_data_table.setdefault(key, {})["hit_count"] = stat.packet_count
                 #print(eth_src)
                 #print(eth_dst)
             
@@ -719,6 +731,29 @@ class SimpleMonitor13(app_manager.RyuApp):
             
             #print("AZALTTIM")
     
+    def send_meter_stats_request(self, datapath):
+        ofp = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+
+        req = ofp_parser.OFPMeterStatsRequest(datapath, 0, ofp.OFPM_ALL)
+        datapath.send_msg(req)
+        
+    @set_ev_cls(ofp_event.EventOFPMeterStatsReply, MAIN_DISPATCHER)
+    def meter_stats_reply_handler(self, ev):
+        meters = []
+        for stat in ev.msg.body:
+            meters.append('meter_id=0x%08x len=%d flow_count=%d '
+                        'packet_in_count=%d byte_in_count=%d '
+                        'duration_sec=%d duration_nsec=%d '
+                        'band_stats=%s' %
+                        (stat.meter_id, stat.len, stat.flow_count,
+                        stat.packet_in_count, stat.byte_in_count,
+                        stat.duration_sec, stat.duration_nsec,
+                        stat.band_stats))
+        self.logger.debug('MeterStats: %s', meters)
+        print('MeterStats: %s', meters)
+
+
 
 
     def send_table_stats_request(self, datapath):
@@ -736,10 +771,10 @@ class SimpleMonitor13(app_manager.RyuApp):
                         (stat.table_id, stat.active_count,
                         stat.lookup_count, stat.matched_count))
             if stat.table_id==0:
-                #print('TableStats: %s', stat)
+                print('TableStats: %s', stat)
                 #print("flow table ratio: %s" % (stat.active_count/table_size*100))
                 table_occupancy = (stat.active_count/table_size*100)
         
         self.logger.debug('TableStats: %s', tables)
-
+        
     
