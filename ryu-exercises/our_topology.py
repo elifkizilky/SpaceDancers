@@ -6,7 +6,7 @@ from mininet.node import RemoteController
 from scapy.all import *
 import time
 s1 =0
-SWITCH_SIZE= 5
+SWITCH_SIZE= 100
 class MyTopology(Topo):
     def build(self):
         global s1
