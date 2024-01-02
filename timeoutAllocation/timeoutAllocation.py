@@ -69,7 +69,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                 total_hits = self.eviction_data_table[key]["hit_count"]
             current_time = datetime.now()
             #heuristic = ((last_hit - packet_in).total_seconds()/(current_time-packet_in).total_seconds())* total_hits
-            heuristic = total_hits/(current_time-packet_in).total_seconds()
+            self.eviction_data_table[key]["time passed now"] = (current_time-packet_in).total_seconds()
+            heuristic = total_hits/( self.eviction_data_table[key]["time passed now"])
             
             self.eviction_cache.setdefault(key, {})["heuristics"] = heuristic
             self.eviction_data_table[key]["heuristics"] = heuristic
@@ -240,10 +241,10 @@ class SimpleMonitor13(app_manager.RyuApp):
 
     def display_eviction_data_table(self):
         table = PrettyTable()
-        table.field_names = ["Key", "Idle Timeout", "Packet In Time", "Last Hit Time", "Total number of hits", "Heuristics"]
+        table.field_names = ["Key", "Idle Timeout", "Packet In Time", "Last Hit Time", "Total number of hits", "Heuristics", "Time Passed Until Now"]
 
         for key, attributes in self.eviction_data_table.items():
-            table.add_row([key, attributes.get("idle_timeout"), attributes.get("packet_in_time"), attributes.get("last_hit_time"), attributes.get("hit_count"), attributes.get("heuristics")])
+            table.add_row([key, attributes.get("idle_timeout"), attributes.get("packet_in_time"), attributes.get("last_hit_time"), attributes.get("hit_count"), attributes.get("heuristics"), attributes.get("time passed now")])
 
         print('Eviction Data Table:\n' + table.get_string())
     
