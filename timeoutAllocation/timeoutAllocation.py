@@ -377,32 +377,34 @@ class SimpleMonitor13(app_manager.RyuApp):
                 self.data_table[key] = {"idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
             
             current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            
+            #update packet_in_time when the flow comes to flow_table
             if key not in self.flow_table:
                 totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
                 self.flow_table.add(key)
-                existing_flow_attributes = self.data_table.get(key, {})
-
-                # Get the current time in a suitable format
                 
-
                 # Update only the last_packet_in attribute, preserving other attributes
+                existing_flow_attributes = self.data_table.get(key, {})
                 existing_flow_attributes['last_packet_in'] = current_time
-            
-                
                 self.data_table[key] = existing_flow_attributes
                 #print("FLOW TABLEEEE", self.flow_table)
-               
-                #self.eviction_data_table[key] = {"packet_count": 1}
-                #self.eviction_data_table[key] = {"hit_count": 1}
+              
+                if key in self.eviction_data_table:
+                    self.eviction_data_table[key]["packet_in_time"] = current_time
+                else:
+                    self.eviction_data_table.setdefault(key, {})["packet_in_time"] = current_time 
             
 
-            #idle_timeout of the flow for proactive eviction data table
+            #last_hit_time field update regardless of being in flow table
             if key not in self.eviction_data_table:
                 # If the key doesn't exist, set the value for the key using setdefault
                 self.eviction_data_table.setdefault(key, {})["idle_timeout"] = allocatedTimeout
+                
+                self.eviction_data_table[key]["last_hit_time"] = current_time 
             else:
                 # If the key exists, update the value
                 self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
+                self.eviction_data_table[key]["last_hit_time"] = current_time 
            
                 
             
@@ -418,8 +420,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             #existing_flow_attributes['last_packet_in'] = current_time
             
             #self.eviction_data_table[key]["packet_in_time"] = current_time
-            self.eviction_data_table[key]["packet_in_time"] = current_time
-            self.eviction_data_table[key]["last_hit_time"] = current_time #this is the first last_hit_time
+            #this is the first last_hit_time
             # Update the flow table with the modified flow attributes
             #self.data_table[key] = existing_flow_attributes
                     
@@ -488,13 +489,19 @@ class SimpleMonitor13(app_manager.RyuApp):
             # verify if we have a valid buffer_id, if yes avoid to send both
             # flow_mod & packet_out
             if msg.buffer_id != ofproto.OFP_NO_BUFFER:
+                #if there is space in table_size, add flow
                 if totalNUmFLows < table_size:
+                    self.add_flow(datapath, 1, match, actions, msg.buffer_id)
+                #if there is another packet come in of the flow that is already in the flow table, allow
+                elif key in self.flow_table:
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id)
                 elif key not in self.flow_table: #check this condition??
                     rejected_flows += 1
                 return
             else:
                 if totalNUmFLows < table_size:
+                    self.add_flow(datapath, 1, match, actions)
+                elif key in self.flow_table:
                     self.add_flow(datapath, 1, match, actions)
                 elif key not in self.flow_table:
                     rejected_flows += 1
@@ -637,8 +644,6 @@ class SimpleMonitor13(app_manager.RyuApp):
             src = msg.match["eth_src"]
             in_port = msg.match["in_port"]
             key = self.generate_key(src,dst,in_port)
-            #cookie = msg.cookie  # Assuming cookie is unique for each flow
-
             # Get the existing flow attributes
             existing_flow_attributes = self.data_table.get(key, {})
 
