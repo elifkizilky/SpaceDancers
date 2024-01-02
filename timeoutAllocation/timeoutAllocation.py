@@ -68,14 +68,16 @@ class SimpleMonitor13(app_manager.RyuApp):
             if self.eviction_data_table[key].get("hit_count"):
                 total_hits = self.eviction_data_table[key]["hit_count"]
             current_time = datetime.now()
-            heuristic = ((last_hit - packet_in).total_seconds()/(current_time-packet_in).total_seconds())* total_hits
-            self.eviction_cache[key] = heuristic
+            #heuristic = ((last_hit - packet_in).total_seconds()/(current_time-packet_in).total_seconds())* total_hits
+            heuristic = total_hits/(current_time-packet_in).total_seconds()
+            
+            self.eviction_cache.setdefault(key, {})["heuristics"] = heuristic
             self.eviction_data_table[key]["heuristics"] = heuristic
         table = PrettyTable()
         table.field_names = ["Key", "heuristics"]
 
-        for key, attributes in self.data_table.items():
-            table.add_row([key, attributes.get(key)])
+        for key, attributes in self.eviction_cache.items():
+            table.add_row([key, attributes.get("heuristics")])
 
         print('SELF EVICTION CACHE:\n' + table.get_string())
         #print("SELF EVICTION CACHE" , self.eviction_cache)
@@ -201,14 +203,15 @@ class SimpleMonitor13(app_manager.RyuApp):
         while True:
             for dp in self.datapaths.values():
                 self._request_stats(dp)
+               
                 #self.remove_flow(dp, 2)
                 #self.send_table_stats_request(dp)
                 #self.check_and_delete_entries() #sonra aç
                 #print("Data table: ", self.display_data_table())
                 self.display_data_table()
-                print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
+                #self.calculate_heuristic()
+                #print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                 print("REJECTED FLOWS", rejected_flows)
-                self.calculate_heuristic()
                 print("FLOW TABLE", self.flow_table)
             
             hub.sleep(5)
@@ -397,8 +400,10 @@ class SimpleMonitor13(app_manager.RyuApp):
               
                 if key in self.eviction_data_table:
                     self.eviction_data_table[key]["packet_in_time"] = current_time
+                    self.eviction_data_table[key]["hit_count"] = 0
                 else:
                     self.eviction_data_table.setdefault(key, {})["packet_in_time"] = current_time
+                    self.eviction_data_table[key]["hit_count"] = 0
             '''
             else: # flow is in already flow table, increase the hit count
                 if key in self.eviction_data_table:
@@ -587,10 +592,15 @@ class SimpleMonitor13(app_manager.RyuApp):
                 eth_dst = stat.match['eth_dst']
                 #print(in_port)
                 key = self.generate_key(eth_src,eth_dst,in_port)
-                self.eviction_data_table[key]["hit_count"] = stat.packet_count
+                if key in self.eviction_data_table:
+                    self.eviction_data_table[key]["hit_count"] = stat.packet_count
+                else:
+                    self.eviction_data_table.setdefault(key, {})["hit_count"] = stat.packet_count
                 #print(eth_src)
                 #print(eth_dst)
             
+            self.calculate_heuristic()
+            print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                 
 
             '''
@@ -682,7 +692,7 @@ class SimpleMonitor13(app_manager.RyuApp):
 
             # Update the flow table with the modified flow attributes
             self.data_table[key] = existing_flow_attributes
-            self.eviction_data_table[key]["hit_count"] = 0 #update the hit count to 0 when flow is removed.   
+            #self.eviction_data_table[key]["hit_count"] = 0 #update the hit count to 0 when flow is removed.   
             totalNUmFLows -= 1
             self.flow_table.discard(key)
             
