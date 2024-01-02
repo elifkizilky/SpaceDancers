@@ -247,7 +247,7 @@ class SimpleMonitor13(app_manager.RyuApp):
 
         print('Eviction Data Table:\n' + table.get_string())
     
-    
+    '''
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def _flow_stats_reply_handler(self, ev):
         body = ev.msg.body
@@ -285,9 +285,9 @@ class SimpleMonitor13(app_manager.RyuApp):
                              stat.instructions[0].actions[0].port,
                              stat.packet_count, stat.byte_count)
 
-        
+      
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
-    
+    '''
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -572,6 +572,8 @@ class SimpleMonitor13(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
         flows = []
+        table = PrettyTable()
+        table.field_names = ["Table ID", "Duration (Sec)", "Priority", "Idle Timeout", "Hard Timeout", "Cookie", "Packet Count", "Byte Count", "Match", "Instructions"]
         for stat in ev.msg.body:
             flows.append('table_id=%s '
                          'duration_sec=%d duration_nsec=%d '
@@ -585,6 +587,17 @@ class SimpleMonitor13(app_manager.RyuApp):
                           stat.idle_timeout, stat.hard_timeout, stat.flags,
                           stat.cookie, stat.packet_count, stat.byte_count,
                           stat.match, stat.instructions))
+            table.add_row([stat.table_id,
+                       f"{stat.duration_sec} s",
+                       stat.priority,
+                       stat.idle_timeout,
+                       stat.hard_timeout,
+                       stat.cookie,
+                       stat.packet_count,
+                       stat.byte_count,
+                       stat.match,
+                       stat.instructions])
+            
             #print(type(stat.match))
             if 'in_port' in stat.match and 'eth_src' in stat.match and 'eth_dst' in stat.match:
                 in_port = stat.match['in_port']
@@ -599,6 +612,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #print(eth_src)
                 #print(eth_dst)
             
+            #self.logger.info('FlowStats:\n' + table.get_string())
+            print('FlowStats:\n' + table.get_string())
             self.calculate_heuristic()
             print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                 
@@ -622,8 +637,6 @@ class SimpleMonitor13(app_manager.RyuApp):
                 key = self.generate_key(src,dst,in_port)
                 self.eviction_data_table[key]["hit_count"] = stat.packet_count
             '''
-            
-            
             
             
         self.logger.debug('FlowStats: %s', flows)
@@ -699,6 +712,9 @@ class SimpleMonitor13(app_manager.RyuApp):
             #delete the key from the eviction data table
             if key in self.eviction_data_table:
                 del self.eviction_data_table[key]
+            
+            if key in self.eviction_cache:
+                del self.eviction_cache[key]
             
             #print("AZALTTIM")
     
