@@ -15,6 +15,7 @@
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
+from ryu.ofproto.ofproto_v1_3_parser import OFPMatch
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, DEAD_DISPATCHER #DEAD Dispatcher is added for monitoring
 from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
@@ -25,6 +26,8 @@ import time
 import hashlib
 from datetime import datetime, timedelta
 from prettytable import PrettyTable
+import heapq
+import psutil
 
 
 #added for stats request
@@ -36,15 +39,24 @@ from operator import attrgetter
 import threading
 
 # Initialize a lock
+
+data_table_lock = threading.Lock()
+eviction_data_table_lock = threading.Lock()
+eviction_cache_lock = threading.Lock()
 totalNumFlows_lock = threading.Lock()
 
 cookie=0
-table_size=100  #just reading
+table_size=50  #just reading
 #npacketIn=0
-totalNUmFLows=  1 #table miss flow ---- more than one function writes --> mutex?
+totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
 rejected_flows = 0
 total_packet_in_count = 0
+overall_flow_number = 1
+initial_lookup_count = 0  # Set this when you start monitoring
+initial_matched_count = 0  # Set this when you start monitoring
+
+
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
@@ -58,11 +70,12 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.start_time = datetime.now()
         self.monitor_thread = hub.spawn(self._monitor)
         self.flow_table = set()
+        self.proactive_eviction_event = threading.Event()
        
         
     #calculate heuristic
     def calculate_heuristic(self):
-        
+        temp_heap = []
         for key in self.eviction_data_table:
             if key in self.flow_table:
                 packet_in = datetime.strptime(self.eviction_data_table[key]["packet_in_time"], "%Y-%m-%d %H:%M:%S")
@@ -75,13 +88,18 @@ class SimpleMonitor13(app_manager.RyuApp):
                 self.eviction_data_table[key]["time passed now"] = (current_time-packet_in).total_seconds()
                 heuristic = total_hits/( self.eviction_data_table[key]["time passed now"])
                 
-                self.eviction_cache.setdefault(key, {})["heuristics"] = heuristic
+                #self.eviction_cache.setdefault(key, {})["heuristics"] = heuristic
                 self.eviction_data_table[key]["heuristics"] = heuristic
+                
+                heapq.heappush(temp_heap, (heuristic, key))
         table = PrettyTable()
         table.field_names = ["Key", "heuristics"]
+        
+        self.eviction_cache = temp_heap
 
-        for key, attributes in self.eviction_cache.items():
-            table.add_row([key, attributes.get("heuristics")])
+        for heuristic, key in self.eviction_cache:
+            # Add each key and its corresponding heuristic to the table
+            table.add_row([key, heuristic])
 
         #print('SELF EVICTION CACHE:\n' + table.get_string())
         #print("SELF EVICTION CACHE" , self.eviction_cache)
@@ -90,13 +108,13 @@ class SimpleMonitor13(app_manager.RyuApp):
     #get the table_occupancy globally
     def set_idle_timeout(self, key):
         global table_occupancy
-        global totalNUmFLows
+        global totalNumFlows
         global table_size
         t_init = 1  # Initial value for idle time
         idle_timeout = t_init
         tmax = 32  # Maximum idle time
         
-        table_occupancy=totalNUmFLows/table_size #FRACTION POINT FIX
+        table_occupancy=totalNumFlows/table_size #FRACTION POINT FIX
         print("TABLE OCCUPANCY IS %f" % (table_occupancy))
        
         
@@ -209,13 +227,17 @@ class SimpleMonitor13(app_manager.RyuApp):
         global rejected_flows
         global table_occupancy
         global total_packet_in_count
+        global totalNumFlows
+        global table_size
+        global overall_flow_number
+        
         while True:
             for dp in self.datapaths.values():
-                self._request_stats(dp)
+                #self._request_stats(dp)
                
                 #self.remove_flow(dp, 2)
                 self.send_table_stats_request(dp)
-                self.send_meter_stats_request(dp)
+                #self.send_meter_stats_request(dp)
                 #self.check_and_delete_entries() #sonra aç
                 #print("Data table: ", self.display_data_table())
                 self.display_data_table()
@@ -224,8 +246,18 @@ class SimpleMonitor13(app_manager.RyuApp):
                 print("REJECTED FLOWS", rejected_flows)
                 #print("FLOW TABLE", self.flow_table)
                 print("TOTAL PACKET COUNT", total_packet_in_count)
+                print("OVERALL FLOW NUMBER", overall_flow_number)
+                table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
+                print("TOTAL NUM FLOWS", totalNumFlows)
+                print("FLOW TABLE", self.flow_table)
+
+                self.proactive_eviction()
                 
+                cpu_usage = psutil.cpu_percent(interval=1)
+                memory_usage = psutil.virtual_memory().percent
+                print(f"CPU Usage: {cpu_usage}%, Memory Usage: {memory_usage}%")
+               
             
             hub.sleep(5)
 
@@ -345,77 +377,83 @@ class SimpleMonitor13(app_manager.RyuApp):
     
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         global cookie
-        global totalNUmFLows
+        global totalNumFlows
         global total_packet_in_count
-        with totalNumFlows_lock:
+        global table_occupancy
+        global overall_flow_number
+        
           
-            ofproto = datapath.ofproto
-            parser = datapath.ofproto_parser
-            dpid= datapath.id
-            src = match["eth_src"]
-            dst = match["eth_dst"]
-            in_port = match["in_port"]
-            key = self.generate_key(src, dst,in_port )
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        dpid= datapath.id
+        src = match["eth_src"]
+        dst = match["eth_dst"]
+        in_port = match["in_port"]
+        key = self.generate_key(src, dst,in_port )
             
-            inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
                                                 actions)]
-            flags = ofproto.OFPFF_SEND_FLOW_REM
+        flags = ofproto.OFPFF_SEND_FLOW_REM
             
-            current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
             
-            if key in self.flow_table:
-                if key in self.data_table:
-                    allocatedTimeout = self.data_table[key].get("idle_timeout", 0)
-                else:
-                    allocatedTimeout = self.set_idle_timeout(key)
-             
-            else:
-                # Update only the last_packet_in attribute, preserving other attributes
-                existing_flow_attributes = self.data_table.get(key, {})
-                existing_flow_attributes['last_packet_in'] = current_time
-                self.data_table[key] = existing_flow_attributes
-                
-                allocatedTimeout = self.set_idle_timeout(key)
-                totalNUmFLows += 1 #increase the number of flows since I'm adding to flow table
-                self.flow_table.add(key)
-                
-                if key in self.eviction_data_table:
-                    self.eviction_data_table[key]["packet_in_time"] = current_time
-                    self.eviction_data_table[key]["hit_count"] = 0
-                else:
-                    self.eviction_data_table.setdefault(key, {})["packet_in_time"] = current_time
-                    self.eviction_data_table[key]["hit_count"] = 0
-                    
-                
-                
-                if key in self.data_table:
-                    packet_count = self.data_table.get(key).get("packet_count", 0)
-                    packet_count += 1
-                    self.data_table[key]["packet_count"] = packet_count
-                    
-                    
-                else:
-                    self.data_table[key] = {"packet_count" : 1}
-            
-            
-            #print("ALLOCATED TIMEOUT FOR THE FLOW %s IS %d" % (key, allocatedTimeout))
-            if buffer_id:
-                mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
-                                        idle_timeout=allocatedTimeout, hard_timeout=0, priority=priority, match=match,
-                                        instructions=inst, flags= flags)
-                
-            else:
-                mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                        idle_timeout=allocatedTimeout, hard_timeout=0, match=match, instructions=inst, flags= flags)
-            
-            
-            #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+        if key in self.flow_table:
             if key in self.data_table:
-                self.data_table[key]["idle_timeout"] = allocatedTimeout
-                #print("arttırıldı", key)
-                #self.eviction_data_table[key]["packet_count"] = packet_count
+                allocatedTimeout = self.data_table[key].get("idle_timeout", 0)
             else:
-                self.data_table[key] = {"idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
+                allocatedTimeout = self.set_idle_timeout(key)
+             
+        else:
+            # Update only the last_packet_in attribute, preserving other attributes
+            existing_flow_attributes = self.data_table.get(key, {})
+            existing_flow_attributes['last_packet_in'] = current_time
+            self.data_table[key] = existing_flow_attributes
+                
+            allocatedTimeout = self.set_idle_timeout(key)
+            with totalNumFlows_lock:
+                totalNumFlows += 1 #increase the number of flows since I'm adding to flow table
+                overall_flow_number += 1
+            print("arttırdım", totalNumFlows)
+            table_occupancy=totalNumFlows/table_size
+            self.flow_table.add(key)
+                
+            if key in self.eviction_data_table:
+                self.eviction_data_table[key]["packet_in_time"] = current_time
+                self.eviction_data_table[key]["hit_count"] = 0
+            else:
+                self.eviction_data_table.setdefault(key, {})["packet_in_time"] = current_time
+                self.eviction_data_table[key]["hit_count"] = 0
+                    
+                
+                
+            if key in self.data_table:
+                packet_count = self.data_table.get(key).get("packet_count", 0)
+                packet_count += 1
+                self.data_table[key]["packet_count"] = packet_count
+                    
+                    
+            else:
+                self.data_table[key] = {"packet_count" : 1}
+            
+            
+        #print("ALLOCATED TIMEOUT FOR THE FLOW %s IS %d" % (key, allocatedTimeout))
+        if buffer_id:
+            mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
+                                    idle_timeout=allocatedTimeout, hard_timeout=0, priority=priority, match=match,
+                                    instructions=inst, flags= flags)
+                
+        else:
+            mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
+                                    idle_timeout=allocatedTimeout, hard_timeout=0, match=match, instructions=inst, flags= flags)
+            
+            
+        #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+        if key in self.data_table:
+            self.data_table[key]["idle_timeout"] = allocatedTimeout
+            #print("arttırıldı", key)
+            #self.eviction_data_table[key]["packet_count"] = packet_count
+        else:
+            self.data_table[key] = {"idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
             
             
             
@@ -423,7 +461,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                
                 
                
-                #print("FLOW TABLEEEE", self.flow_table)
+            #print("FLOW TABLEEEE", self.flow_table)
               
                 
             '''
@@ -436,16 +474,16 @@ class SimpleMonitor13(app_manager.RyuApp):
                     self.eviction_data_table.setdefault(key, {})["hit_count"] = 1
             '''
 
-            #last_hit_time field update regardless of being in flow table
-            if key not in self.eviction_data_table:
-                # If the key doesn't exist, set the value for the key using setdefault
-                self.eviction_data_table.setdefault(key, {})["idle_timeout"] = allocatedTimeout
+        #last_hit_time field update regardless of being in flow table
+        if key not in self.eviction_data_table:
+            # If the key doesn't exist, set the value for the key using setdefault
+            self.eviction_data_table.setdefault(key, {})["idle_timeout"] = allocatedTimeout
                 
-                #self.eviction_data_table[key]["last_hit_time"] = current_time 
-            else:
-                # If the key exists, update the value
-                self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
-                #self.eviction_data_table[key]["last_hit_time"] = current_time 
+            #self.eviction_data_table[key]["last_hit_time"] = current_time 
+        else:
+            # If the key exists, update the value
+            self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
+            #self.eviction_data_table[key]["last_hit_time"] = current_time 
            
                 
             
@@ -468,7 +506,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             datapath.send_msg(mod)
             total_packet_in_count += 1
            
-
+    '''
     def remove_flow(self, datapath, cookie):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
@@ -482,10 +520,11 @@ class SimpleMonitor13(app_manager.RyuApp):
             out_group=ofproto.OFPG_ANY
         )
         datapath.send_msg(mod)
-
+    '''
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         global rejected_flows
+       
         # If you hit this you might want to increase
         # the "miss_send_length" of your switch
         if ev.msg.msg_len < ev.msg.total_len:
@@ -532,8 +571,9 @@ class SimpleMonitor13(app_manager.RyuApp):
             # flow_mod & packet_out
             if msg.buffer_id != ofproto.OFP_NO_BUFFER:
                 #if there is space in table_size, add flow
-                if totalNUmFLows < table_size:
+                if totalNumFlows < table_size:
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id)
+                   
                 #if there is another packet come in of the flow that is already in the flow table, allow
                 elif key in self.flow_table:
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id)
@@ -541,8 +581,9 @@ class SimpleMonitor13(app_manager.RyuApp):
                     rejected_flows += 1
                 return
             else:
-                if totalNUmFLows < table_size:
+                if totalNumFlows < table_size:
                     self.add_flow(datapath, 1, match, actions)
+                   
                 elif key in self.flow_table:
                     self.add_flow(datapath, 1, match, actions)
                 elif key not in self.flow_table:
@@ -594,6 +635,7 @@ class SimpleMonitor13(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
+         
         flows = []
         table = PrettyTable()
         table.field_names = ["Table ID", "Duration (Sec)", "Priority", "Idle Timeout", "Hard Timeout", "Cookie", "Packet Count", "Byte Count", "Match", "Instructions"]
@@ -640,6 +682,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         print('FlowStats:\n' + table.get_string())
         self.calculate_heuristic()
         #print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
+        # Signal that stats reply has been handled, specifically for proactive eviction
+        self.proactive_eviction_event.set()
                 
 
         '''
@@ -668,10 +712,11 @@ class SimpleMonitor13(app_manager.RyuApp):
         
         
         
-        
+    
     @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
     def flow_removed_handler(self, ev):
-        global totalNUmFLows
+        global totalNumFlows
+       
         with totalNumFlows_lock:
             
             msg = ev.msg
@@ -729,9 +774,12 @@ class SimpleMonitor13(app_manager.RyuApp):
 
             # Update the flow table with the modified flow attributes
             self.data_table[key] = existing_flow_attributes
-            #self.eviction_data_table[key]["hit_count"] = 0 #update the hit count to 0 when flow is removed.   
-            totalNUmFLows -= 1
-            self.flow_table.discard(key)
+            #self.eviction_data_table[key]["hit_count"] = 0 #update the hit count to 0 when flow is removed.
+            
+            if key in self.flow_table: 
+                totalNumFlows -= 1
+                print("azalttım", totalNumFlows)
+                self.flow_table.discard(key)
             
             #delete the key from the eviction data table
             if key in self.eviction_data_table:
@@ -741,6 +789,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                 del self.eviction_cache[key]
             
             #print("AZALTTIM")
+            
+           
     
     def send_meter_stats_request(self, datapath):
         ofp = datapath.ofproto
@@ -775,6 +825,8 @@ class SimpleMonitor13(app_manager.RyuApp):
     
     @set_ev_cls(ofp_event.EventOFPTableStatsReply, MAIN_DISPATCHER)
     def table_stats_reply_handler(self, ev):
+        global initial_lookup_count
+        global initial_matched_count
         tables = []
         for stat in ev.msg.body:
             tables.append('table_id=%d active_count=%d lookup_count=%d '
@@ -782,10 +834,120 @@ class SimpleMonitor13(app_manager.RyuApp):
                         (stat.table_id, stat.active_count,
                         stat.lookup_count, stat.matched_count))
             if stat.table_id==0:
+                if initial_lookup_count == 0 and initial_matched_count == 0:
+                    initial_lookup_count = stat.lookup_count
+                    initial_matched_count = stat.matched_count
                 print('TableStats: %s', stat)
+                # Calculate the difference from the initial counts
+                lookup_count_diff = stat.lookup_count - initial_lookup_count
+                matched_count_diff = stat.matched_count - initial_matched_count
+                print(f'Lookup Count Difference: {lookup_count_diff}, Matched Count Difference: {matched_count_diff}')
+
+                
                 #print("flow table ratio: %s" % (stat.active_count/table_size*100))
                 #table_occupancy = (stat.active_count/table_size*100)
         
         self.logger.debug('TableStats: %s', tables)
         
+        
+    def remove_flow(self, datapath, src, dst, in_port):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        match = OFPMatch(in_port=in_port, eth_src=src, eth_dst=dst)
+
+        # Create a flow mod message to delete the flow
+        mod = parser.OFPFlowMod(
+            datapath=datapath,
+            match=match,
+            table_id=ofproto.OFPTT_ALL,
+            command=ofproto.OFPFC_DELETE,
+            out_port=ofproto.OFPP_ANY,
+            out_group=ofproto.OFPG_ANY
+        )
+
+        datapath.send_msg(mod)
+        
+    
+    
+    
+            
+            
+    def proactive_eviction(self):
+        global totalNumFlows
+        global table_size
+        global table_occupancy
+
+        #self.calculate_heuristic()
+        high_threshold = 0.9
+        low_threshold = 0.8
+
+        temp_num_flows = totalNumFlows
+        temp_occupancy = table_occupancy
+        if table_occupancy >= high_threshold:
+            for dp in self.datapaths.values():
+                self._request_stats(dp)
+            
+            # Wait specifically for the proactive eviction event
+            self.proactive_eviction_event.wait()
+            self.proactive_eviction_event.clear()
+            # Continue with eviction if occupancy is still high
+            
+            if table_occupancy >= high_threshold:
+                print("buraya girdi")
+                while temp_occupancy > low_threshold and self.eviction_cache:
+                    # Pop the flow with the smallest heuristic value
+                    _, key = heapq.heappop(self.eviction_cache)
+
+                    # Extract src, dst, and in_port from key
+                    src, dst, in_port = key.decode('utf-8').split('-')
+
+                    # Evict flow from all datapaths
+                    for datapath in self.datapaths.values():
+                        self.remove_flow(datapath, src, dst, int(in_port))
+                        temp_num_flows -= 1
+
+                    # Update table occupancy
+                    table_occupancy = totalNumFlows / table_size
+                    temp_occupancy = temp_num_flows / table_size
+                    print("CURRENT OCCUPANCY", table_occupancy)
+                    print("TEMP OCCUPANCY", temp_occupancy)
+
+    '''  
+    #IN HERE, SORTING ALGO CAN INCREASE CPU USAGE, CONSIDER USING HEAP 
+    def proactive_eviction(self):
+        global totalNumFlows
+        global table_size
+        global table_occupancy
+
+        # Define thresholds for table occupancy
+        high_threshold = 0.9  # 90%
+        low_threshold = 0.8   # 80%
+        
+        
+
+        # Check if table occupancy is above the high threshold
+        if table_occupancy >= high_threshold:
+            print("BURAYA GİRDİ")
+            # Sort eviction_cache based on heuristic values (lowest first)
+            sorted_flows = sorted(self.eviction_cache.items(), key=lambda x: x[1]['heuristics'])
+
+            # Evict flows until table occupancy is below the low threshold
+            for key, _ in sorted_flows:
+                print("CURRENT OCCUPANCY NOW", table_occupancy)
+                if table_occupancy <= low_threshold:
+                    break
+
+                # Extract src, dst, and in_port from key
+                src, dst, in_port = key.decode('utf-8').split('-')
+                
+                # Evict flow from all datapaths
+                for datapath in self.datapaths.values():
+                    self.remove_flow(datapath, src, dst, int(in_port))
+                
+                # Update table occupancy
+                table_occupancy = totalNumFlows / table_size
+        
+    
+        print("BURDAKI TABLE", table_occupancy)
+        '''    
     
