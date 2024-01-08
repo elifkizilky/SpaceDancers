@@ -46,7 +46,7 @@ eviction_cache_lock = threading.Lock()
 totalNumFlows_lock = threading.Lock()
 
 cookie=0
-table_size=50  #just reading
+table_size=100  #just reading
 #npacketIn=0
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -60,6 +60,14 @@ initial_matched_count = 0  # Set this when you start monitoring
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
+
+    def _proactive_eviction_loop(self):
+        global table_occupancy
+        while True:
+            table_occupancy = totalNumFlows/table_size
+            self.proactive_eviction()
+            time.sleep(2)  # Run proactive eviction every 2 seconds
+            
     def __init__(self, *args, **kwargs):
         super(SimpleMonitor13, self).__init__(*args, **kwargs)
         self.data_table = {}  # Dictionary to hold flow attributes
@@ -71,7 +79,13 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.monitor_thread = hub.spawn(self._monitor)
         self.flow_table = set()
         self.proactive_eviction_event = threading.Event()
-       
+        self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
+        self.proactive_eviction_thread.daemon = True
+        self.proactive_eviction_thread.start()
+
+    
+    
+
         
     #calculate heuristic
     def calculate_heuristic(self):
@@ -252,7 +266,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 print("TOTAL NUM FLOWS", totalNumFlows)
                 print("FLOW TABLE", self.flow_table)
 
-                self.proactive_eviction()
+                #self.proactive_eviction()
                 
                 cpu_usage = psutil.cpu_percent(interval=1)
                 memory_usage = psutil.virtual_memory().percent
@@ -679,7 +693,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #print(eth_dst)
             
             #self.logger.info('FlowStats:\n' + table.get_string())
-        print('FlowStats:\n' + table.get_string())
+        #print('FlowStats:\n' + table.get_string())
         self.calculate_heuristic()
         #print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
         # Signal that stats reply has been handled, specifically for proactive eviction
@@ -881,11 +895,12 @@ class SimpleMonitor13(app_manager.RyuApp):
         high_threshold = 0.9
         low_threshold = 0.8
 
-        temp_num_flows = totalNumFlows
-        temp_occupancy = table_occupancy
+        
         if table_occupancy >= high_threshold:
+            
             for dp in self.datapaths.values():
                 self._request_stats(dp)
+            
             
             # Wait specifically for the proactive eviction event
             self.proactive_eviction_event.wait()
@@ -894,6 +909,8 @@ class SimpleMonitor13(app_manager.RyuApp):
             
             if table_occupancy >= high_threshold:
                 print("buraya girdi")
+                temp_num_flows = totalNumFlows
+                temp_occupancy = table_occupancy
                 while temp_occupancy > low_threshold and self.eviction_cache:
                     # Pop the flow with the smallest heuristic value
                     _, key = heapq.heappop(self.eviction_cache)
