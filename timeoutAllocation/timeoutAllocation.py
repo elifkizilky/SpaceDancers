@@ -70,6 +70,17 @@ class SimpleMonitor13(app_manager.RyuApp):
             
     def __init__(self, *args, **kwargs):
         super(SimpleMonitor13, self).__init__(*args, **kwargs)
+        
+        # Initialize the accumulators and count for averaging
+        self.table_occupancy_total = 0
+        self.cpu_usage_total = 0
+        self.memory_usage_total = 0
+        self.average_accumulation_count = 0
+        
+        self.first_packet_in_time = None
+        self.last_flow_removed_time = None
+        self.first_packet_received = False
+        
         self.data_table = {}  # Dictionary to hold flow attributes
         self.eviction_cache = {} # dictionary to hold flows that will be evicted (key,heut)
         self.eviction_data_table = {}
@@ -77,11 +88,12 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.datapaths = {}
         self.start_time = datetime.now()
         self.monitor_thread = hub.spawn(self._monitor)
+        self.average_calculation_thread = hub.spawn(self._calculate_averages)
         self.flow_table = set()
         self.proactive_eviction_event = threading.Event()
-        self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
-        self.proactive_eviction_thread.daemon = True
-        self.proactive_eviction_thread.start()
+        #self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
+        #self.proactive_eviction_thread.daemon = True
+        #self.proactive_eviction_thread.start()
 
     
     
@@ -234,7 +246,30 @@ class SimpleMonitor13(app_manager.RyuApp):
         for key in entries_to_delete:
             print("%s DELETED FROM DATA TABLE" % (key))
             del self.data_table[key]
-        
+     
+     
+    def _calculate_averages(self):
+        while True:
+            # Check if the first packet has been received and last flow removed
+            if self.first_packet_received and self.last_flow_removed_time:
+                total_time_passed = (self.last_flow_removed_time - self.first_packet_in_time).total_seconds()
+                if total_time_passed > 0:
+                    # Calculate averages
+                    avg_table_occupancy = self.table_occupancy_total / total_time_passed
+                    avg_cpu_usage = self.cpu_usage_total / total_time_passed
+                    avg_memory_usage = self.memory_usage_total / total_time_passed
+
+                    # Print average values
+                    print(f"Average Table Occupancy over {total_time_passed}: {avg_table_occupancy}")
+                    print(f"Average CPU Usage over {total_time_passed}: {avg_cpu_usage}%")
+                    print(f"Average Memory Usage over {total_time_passed}: {avg_memory_usage}%")
+
+            # Continue accumulating values every second
+            self.table_occupancy_total += totalNumFlows / table_size
+            self.cpu_usage_total += psutil.cpu_percent(interval=None)/100
+            self.memory_usage_total += psutil.virtual_memory().percent/100
+
+            hub.sleep(1) 
 
     #send stats request every 10s
     def _monitor(self):
@@ -245,8 +280,12 @@ class SimpleMonitor13(app_manager.RyuApp):
         global table_size
         global overall_flow_number
         
+        average_interval = 15
+        
         while True:
             for dp in self.datapaths.values():
+                
+                
                 #self._request_stats(dp)
                
                 #self.remove_flow(dp, 2)
@@ -271,6 +310,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                 cpu_usage = psutil.cpu_percent(interval=1)
                 memory_usage = psutil.virtual_memory().percent
                 print(f"CPU Usage: {cpu_usage}%, Memory Usage: {memory_usage}%")
+                
+                
                
             
             hub.sleep(5)
@@ -538,6 +579,10 @@ class SimpleMonitor13(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         global rejected_flows
+        
+        if not self.first_packet_received:
+            self.first_packet_in_time = datetime.now()
+            self.first_packet_received = True
        
         # If you hit this you might want to increase
         # the "miss_send_length" of your switch
@@ -731,7 +776,7 @@ class SimpleMonitor13(app_manager.RyuApp):
     def flow_removed_handler(self, ev):
         global totalNumFlows
        
-        
+        self.last_flow_removed_time = datetime.now()
             
         msg = ev.msg
         dp = msg.datapath
