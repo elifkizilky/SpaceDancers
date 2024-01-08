@@ -91,9 +91,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.average_calculation_thread = hub.spawn(self._calculate_averages)
         self.flow_table = set()
         self.proactive_eviction_event = threading.Event()
-        #self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
-        #self.proactive_eviction_thread.daemon = True
-        #self.proactive_eviction_thread.start()
+        self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
+        self.proactive_eviction_thread.daemon = True
+        self.proactive_eviction_thread.start()
 
     
     
