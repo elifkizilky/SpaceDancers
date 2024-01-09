@@ -45,6 +45,7 @@ eviction_data_table_lock = threading.Lock()
 eviction_cache_lock = threading.Lock()
 totalNumFlows_lock = threading.Lock()
 total_packet_in_lock = threading.Lock()
+flow_table_lock = threading.Lock()
 
 cookie=0
 table_size=100  #just reading
@@ -57,6 +58,7 @@ overall_flow_number = 1
 initial_lookup_count = 0  # Set this when you start monitoring
 initial_matched_count = 0  # Set this when you start monitoring
 lookup_count_diff=0
+
 
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -92,9 +94,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.average_calculation_thread = hub.spawn(self._calculate_averages)
         self.flow_table = set()
         self.proactive_eviction_event = threading.Event()
-        #self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
-        #self.proactive_eviction_thread.daemon = True
-        #self.proactive_eviction_thread.start()
+        self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
+        self.proactive_eviction_thread.daemon = True
+        self.proactive_eviction_thread.start()
 
     
     
@@ -358,47 +360,7 @@ class SimpleMonitor13(app_manager.RyuApp):
 
         print('Eviction Data Table:\n' + table.get_string())
     
-    '''
-    @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
-    def _flow_stats_reply_handler(self, ev):
-        body = ev.msg.body
-        table = PrettyTable()
-        table.field_names = ["Table ID", "Duration (Sec)", "Priority", "Idle Timeout", "Hard Timeout", "Cookie", "Packet Count", "Byte Count", "Match", "Instructions"]
 
-        for stat in ev.msg.body:
-            table.add_row([stat.table_id,
-                       f"{stat.duration_sec} s",
-                       stat.priority,
-                       stat.idle_timeout,
-                       stat.hard_timeout,
-                       stat.cookie,
-                       stat.packet_count,
-                       stat.byte_count,
-                       stat.match,
-                       stat.instructions])
-
-        self.logger.info('FlowStats:\n' + table.get_string())
-        #self.logger.info('datapath         '
-        #                'in-port  eth-dst           '
-        #                'out-port packets  bytes')
-        #self.logger.info('---------------- '
-        #                '-------- ----------------- '
-        #               '-------- -------- --------')
-        
-        
-
-        for stat in sorted([flow for flow in body if flow.priority == 1],
-                           key=lambda flow: (flow.match['in_port'],
-                                             flow.match['eth_dst'])):
-            self.logger.info('%016x %8x %17s %8x %8d %8d',
-                             ev.msg.datapath.id,
-                             stat.match['in_port'], stat.match['eth_dst'],
-                             stat.instructions[0].actions[0].port,
-                             stat.packet_count, stat.byte_count)
-
-      
-    @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
-    '''
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -481,7 +443,10 @@ class SimpleMonitor13(app_manager.RyuApp):
                 overall_flow_number += 1
             #print("arttırdım", totalNumFlows)
             table_occupancy=totalNumFlows/table_size
-            self.flow_table.add(key)
+            print(f"totalNumFLows before adding to flow table {totalNumFlows} with {key}")
+            
+            with flow_table_lock:
+                self.flow_table.add(key)
                 
             if key in self.eviction_data_table:
                 self.eviction_data_table[key]["packet_in_time"] = current_time
@@ -688,26 +653,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.proactive_eviction_event.set()
                 
 
-        '''
-            # Extracting in_port
-            in_port_start = stat.match.find("'in_port': ") + len("'in_port': ")
-            in_port_end = stat.match.find(",", in_port_start)
-            in_port = stat.match[in_port_start:in_port_end]
-
-            # Extracting eth_src
-            eth_src_start = stat.match.find("'eth_src': '") + len("'eth_src': '")
-            eth_src_end = stat.match.find("'", eth_src_start)
-            eth_src = stat.match[eth_src_start:eth_src_end]
-
-            # Extracting eth_dst
-            eth_dst_start = stat.match.find("'eth_dst': '") + len("'eth_dst': '")
-            eth_dst_end = stat.match.find("'", eth_dst_start)
-            eth_dst = match_str[eth_dst_start:eth_dst_end]
-            if in_port is not None and dst is not None and src is not None:
-                key = self.generate_key(src,dst,in_port)
-                self.eviction_data_table[key]["hit_count"] = stat.packet_count
-        '''
-            
+        
             
         #self.logger.debug('FlowStats: %s', flows)
         #print('FlowStats: %s' % flows)
@@ -784,7 +730,8 @@ class SimpleMonitor13(app_manager.RyuApp):
             with totalNumFlows_lock:
                 totalNumFlows -= 1
                 #print("azalttım", totalNumFlows)
-                self.flow_table.discard(key)
+                with flow_table_lock:
+                    self.flow_table.discard(key)
         
         #delete the key from the eviction data table
         if key in self.eviction_data_table:

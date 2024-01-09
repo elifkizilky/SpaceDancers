@@ -45,6 +45,7 @@ eviction_data_table_lock = threading.Lock()
 eviction_cache_lock = threading.Lock()
 totalNumFlows_lock = threading.Lock()
 total_packet_in_lock = threading.Lock()
+flow_table_lock = threading.Lock()
 
 cookie=0
 table_size=100  #just reading
@@ -281,14 +282,14 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                 
                 print("REJECTED FLOWS", rejected_flows)
-                #print("FLOW TABLE", self.flow_table)
+               
                 print("TOTAL PACKET IN COUNT", total_packet_in_count)
                 
                 print("OVERALL FLOW NUMBER", overall_flow_number)
                 table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
                 print("TOTAL NUM FLOWS", totalNumFlows)
-                #print("FLOW TABLE", self.flow_table)
+                print("FLOW TABLE", self.flow_table)
                 print("TOTAL HIT COUNT", lookup_count_diff- total_packet_in_count - rejected_flows)
                 #self.proactive_eviction()
                 
@@ -455,7 +456,9 @@ class SimpleMonitor13(app_manager.RyuApp):
                 overall_flow_number += 1
             #print("arttırdım", totalNumFlows)
             table_occupancy=totalNumFlows/table_size
-            self.flow_table.add(key)
+            print(f"totalNumFLows before adding to flow table {totalNumFlows} with {key}")
+            with flow_table_lock:
+                self.flow_table.add(key)
                 
             if key in self.eviction_data_table:
                 self.eviction_data_table[key]["packet_in_time"] = current_time
@@ -758,7 +761,8 @@ class SimpleMonitor13(app_manager.RyuApp):
             with totalNumFlows_lock:
                 totalNumFlows -= 1
                 #print("azalttım", totalNumFlows)
-                self.flow_table.discard(key)
+                with flow_table_lock:
+                    self.flow_table.discard(key)
         
         #delete the key from the eviction data table
         if key in self.eviction_data_table:
