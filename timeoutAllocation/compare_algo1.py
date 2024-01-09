@@ -283,13 +283,13 @@ class SimpleMonitor13(app_manager.RyuApp):
                 print("REJECTED FLOWS", rejected_flows)
                 #print("FLOW TABLE", self.flow_table)
                 print("TOTAL PACKET IN COUNT", total_packet_in_count)
-                print("TOTAL HIT COUNT", lookup_count_diff- total_packet_in_count - rejected_flows)
+                
                 print("OVERALL FLOW NUMBER", overall_flow_number)
                 table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
                 print("TOTAL NUM FLOWS", totalNumFlows)
-                print("FLOW TABLE", self.flow_table)
-
+                #print("FLOW TABLE", self.flow_table)
+                print("TOTAL HIT COUNT", lookup_count_diff- total_packet_in_count - rejected_flows)
                 #self.proactive_eviction()
                 
                 cpu_usage = psutil.cpu_percent(interval=1)
@@ -568,18 +568,11 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #if there is space in table_size, add flow
                 if totalNumFlows < table_size:
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id)
-                   
-                #if there is another packet come in of the flow that is already in the flow table, allow
-                elif key in self.flow_table:
-                    self.add_flow(datapath, 1, match, actions, msg.buffer_id)
                 elif key not in self.flow_table: #check this condition??
                     rejected_flows += 1
                 return
             else:
                 if totalNumFlows < table_size:
-                    self.add_flow(datapath, 1, match, actions)
-                   
-                elif key in self.flow_table:
                     self.add_flow(datapath, 1, match, actions)
                 elif key not in self.flow_table:
                     rejected_flows += 1
@@ -592,19 +585,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                                   in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
         
-        '''
-        key = self.generate_key(src, dst, in_port)
-        
-        current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        if key in self.eviction_data_table:
-            if "packet_in_time" in self.eviction_data_table[key]: 
-                # increase hit count while in the table
-                #hit_count = self.eviction_data_table.get(key).get("hit_count", 0)
-                #hit_count += 1
-                #self.eviction_data_table[key]["hit_count"] = hit_count
-                self.eviction_data_table[key]["last_hit_time"] = current_time
-                #print("LAST HIT CURRENT TIME", current_time)
-        '''        
+           
                 
            
        

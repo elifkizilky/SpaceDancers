@@ -598,17 +598,11 @@ class SimpleMonitor13(app_manager.RyuApp):
                 if totalNumFlows < table_size:
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id)
                    
-                #if there is another packet come in of the flow that is already in the flow table, allow
-                elif key in self.flow_table:
-                    self.add_flow(datapath, 1, match, actions, msg.buffer_id)
                 elif key not in self.flow_table: #check this condition??
                     rejected_flows += 1
                 return
             else:
                 if totalNumFlows < table_size:
-                    self.add_flow(datapath, 1, match, actions)
-                   
-                elif key in self.flow_table:
                     self.add_flow(datapath, 1, match, actions)
                 elif key not in self.flow_table:
                     rejected_flows += 1
