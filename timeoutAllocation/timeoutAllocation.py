@@ -190,13 +190,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                             idle_timeout = 1
                             #print("5. print %s" % (key), idle_timeout)
                         
-                else:
-                    if int(tlastDuration) > 0: 
-                        idle_timeout = int(tlastDuration)
-                        #print("4. print %s t_lastduration: %d" % (key, tlastDuration), idle_timeout)
-                    else:
-                        idle_timeout = 1
-                        #print("5. print %s" % (key), idle_timeout)
+            
             elif table_occupancy > 0.95:
                 idle_timeout = 1
                 #print("6. print %s" % (key), idle_timeout)
