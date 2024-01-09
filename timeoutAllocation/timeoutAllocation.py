@@ -182,14 +182,15 @@ class SimpleMonitor13(app_manager.RyuApp):
                         if idle_timeout <  1:
                             idle_timeout = 1
                         #print("3. print %s t_last_duration: %d tpacketIn: %s tlastRemoved: %s idle timeout: " % (key, tlastDuration, tpacketIn ,tlastRemoved), idle_timeout)
-                       
-                else:
-                    if int(tlastDuration) > 0: 
-                        idle_timeout = int(tlastDuration)
-                        #print("4. print %s t_lastduration: %d" % (key, tlastDuration), idle_timeout)
                     else:
-                        idle_timeout = 1
-                        #print("5. print %s" % (key), idle_timeout)
+                        if int(tlastDuration) > 0: 
+                            idle_timeout = int(tlastDuration)
+                            #print("4. print %s t_lastduration: %d" % (key, tlastDuration), idle_timeout)
+                        else:
+                            idle_timeout = 1
+                            #print("5. print %s" % (key), idle_timeout)
+                        
+            
             elif table_occupancy > 0.95:
                 idle_timeout = 1
                 #print("6. print %s" % (key), idle_timeout)
@@ -869,43 +870,3 @@ class SimpleMonitor13(app_manager.RyuApp):
                     temp_occupancy = temp_num_flows / table_size
                     print("CURRENT OCCUPANCY", table_occupancy)
                     print("TEMP OCCUPANCY", temp_occupancy)
-
-    '''  
-    #IN HERE, SORTING ALGO CAN INCREASE CPU USAGE, CONSIDER USING HEAP 
-    def proactive_eviction(self):
-        global totalNumFlows
-        global table_size
-        global table_occupancy
-
-        # Define thresholds for table occupancy
-        high_threshold = 0.9  # 90%
-        low_threshold = 0.8   # 80%
-        
-        
-
-        # Check if table occupancy is above the high threshold
-        if table_occupancy >= high_threshold:
-            print("BURAYA GİRDİ")
-            # Sort eviction_cache based on heuristic values (lowest first)
-            sorted_flows = sorted(self.eviction_cache.items(), key=lambda x: x[1]['heuristics'])
-
-            # Evict flows until table occupancy is below the low threshold
-            for key, _ in sorted_flows:
-                print("CURRENT OCCUPANCY NOW", table_occupancy)
-                if table_occupancy <= low_threshold:
-                    break
-
-                # Extract src, dst, and in_port from key
-                src, dst, in_port = key.decode('utf-8').split('-')
-                
-                # Evict flow from all datapaths
-                for datapath in self.datapaths.values():
-                    self.remove_flow(datapath, src, dst, int(in_port))
-                
-                # Update table occupancy
-                table_occupancy = totalNumFlows / table_size
-        
-    
-        print("BURDAKI TABLE", table_occupancy)
-        '''    
-    
