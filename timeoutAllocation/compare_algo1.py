@@ -55,7 +55,8 @@ total_packet_in_count = 0
 overall_flow_number = 1
 initial_lookup_count = 0  # Set this when you start monitoring
 initial_matched_count = 0  # Set this when you start monitoring
-
+lookup_count_diff=0
+hit_count=0
 
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -233,16 +234,16 @@ class SimpleMonitor13(app_manager.RyuApp):
                     avg_memory_usage = self.memory_usage_total / total_time_passed
 
                     # Print average values
-                    print(f"Average Table Occupancy over {total_time_passed}: {avg_table_occupancy}")
-                    print(f"Average CPU Usage over {total_time_passed}: {avg_cpu_usage}%")
-                    print(f"Average Memory Usage over {total_time_passed}: {avg_memory_usage}%")
+                    #print(f"Average Table Occupancy over {total_time_passed}: {avg_table_occupancy}")
+                    #print(f"Average CPU Usage over {total_time_passed}: {avg_cpu_usage}%")
+                    #print(f"Average Memory Usage over {total_time_passed}: {avg_memory_usage}%")
 
             # Continue accumulating values every second
             self.table_occupancy_total += totalNumFlows / table_size
             self.cpu_usage_total += psutil.cpu_percent(interval=None)/100
             self.memory_usage_total += psutil.virtual_memory().percent/100
 
-            hub.sleep(1) 
+            hub.sleep(5) 
 
     #send stats request every 10s
     def _monitor(self):
@@ -252,6 +253,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         global totalNumFlows
         global table_size
         global overall_flow_number
+        global lookup_count_diff
         
         average_interval = 15
         
@@ -271,7 +273,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                 print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                 print("REJECTED FLOWS", rejected_flows)
                 #print("FLOW TABLE", self.flow_table)
-                print("TOTAL PACKET COUNT", total_packet_in_count)
+                print("TOTAL PACKET IN COUNT", total_packet_in_count)
+                print("TOTAL HIT COUNT", lookup_count_diff- total_packet_in_count)
                 print("OVERALL FLOW NUMBER", overall_flow_number)
                 table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
@@ -287,7 +290,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 
                
             
-            hub.sleep(5)
+            hub.sleep(2)
 
     def display_data_table(self):
         table = PrettyTable()
@@ -860,6 +863,7 @@ class SimpleMonitor13(app_manager.RyuApp):
     def table_stats_reply_handler(self, ev):
         global initial_lookup_count
         global initial_matched_count
+        global lookup_count_diff
         tables = []
         for stat in ev.msg.body:
             tables.append('table_id=%d active_count=%d lookup_count=%d '

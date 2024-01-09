@@ -55,7 +55,7 @@ total_packet_in_count = 0
 overall_flow_number = 1
 initial_lookup_count = 0  # Set this when you start monitoring
 initial_matched_count = 0  # Set this when you start monitoring
-
+lookup_count_diff=0
 
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -279,6 +279,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         global totalNumFlows
         global table_size
         global overall_flow_number
+        global lookup_count_diff
         
         average_interval = 15
         
@@ -299,6 +300,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 print("REJECTED FLOWS", rejected_flows)
                 #print("FLOW TABLE", self.flow_table)
                 print("TOTAL PACKET COUNT", total_packet_in_count)
+                print("TOTAL HİT COUNT", lookup_count_diff-total_packet_in_count)
                 print("OVERALL FLOW NUMBER", overall_flow_number)
                 table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
@@ -887,6 +889,7 @@ class SimpleMonitor13(app_manager.RyuApp):
     def table_stats_reply_handler(self, ev):
         global initial_lookup_count
         global initial_matched_count
+        global lookup_count_diff
         tables = []
         for stat in ev.msg.body:
             tables.append('table_id=%d active_count=%d lookup_count=%d '
