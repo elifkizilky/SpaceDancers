@@ -20,7 +20,7 @@ def create_hosts(topo):
     macs= {}
     file_name= "univ1_pt"
     hostID=1
-    for i in range(1,3):
+    for i in range(1,2):
         print(hostID)
         pcap_file= file_name+str(i)
         print("before rdpcap")
@@ -77,7 +77,7 @@ def start_mininet():
     h1= net.get('h1')
     print("STARTING TCP REPLAY")
     file_name= "univ1_pt"
-    for i in range(1,4):
+    for i in range(1,2):
         pcap_file= file_name+str(i)
         print(pcap_file)
         output=h1.cmd('sudo tcpreplay --intf1=h1-eth0 {}'.format(pcap_file))
