@@ -46,6 +46,7 @@ eviction_cache_lock = threading.Lock()
 totalNumFlows_lock = threading.Lock()
 total_packet_in_lock = threading.Lock()
 flow_table_lock = threading.Lock()
+table_occupancy_lock = threading.Lock()
 
 cookie=0
 table_size=100  #just reading
@@ -141,7 +142,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         global table_size
         t_init = 1  # Initial value for idle time
         idle_timeout = t_init
-        tmax = 48  # Maximum idle time
+        tmax = 40  # Maximum idle time
         
         table_occupancy=totalNumFlows/table_size #FRACTION POINT FIX
         #print("TABLE OCCUPANCY IS %f" % (table_occupancy))
@@ -160,7 +161,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             npacketIn = self.data_table.get(key).get('packet_count', 1)
             #npacketIn += 1
             #print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
-            if table_occupancy <=  0.75:
+            if table_occupancy <=  0.60:
                 idle_timeout = min(t_init * 2 ** npacketIn, tmax)
                 #print("2. print key: %s nacketIn: %d t_init: %d idle_timeout: " % (key, npacketIn, t_init), idle_timeout)
             elif table_occupancy <= 0.95: #there is a mistake in here
@@ -258,6 +259,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             # Check if the first packet has been received and last flow removed
             
             if self.first_packet_received and self.last_flow_removed_time:
+                print("BURASUIIIIIIIIIIII")
                 total_time_passed = (self.last_flow_removed_time - self.first_packet_in_time).total_seconds()
                 if total_time_passed > 0:
                     # Calculate averages
@@ -293,7 +295,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         average_interval = 15
         
         while True:
-            for dp in self.datapaths.values():
+            datapaths_snapshot = list(self.datapaths.values())
+            for dp in datapaths_snapshot:
                 
                 
                 #self._request_stats(dp)
@@ -435,6 +438,12 @@ class SimpleMonitor13(app_manager.RyuApp):
         else:
             # Update only the last_packet_in attribute, preserving other attributes
             existing_flow_attributes = self.data_table.get(key, {})
+            
+            # take the first packet-in as start
+            if not self.first_packet_received:
+                self.first_packet_in_time = datetime.now()
+                self.first_packet_received = True
+            
             existing_flow_attributes['last_packet_in'] = current_time
             self.data_table[key] = existing_flow_attributes
                 
@@ -444,28 +453,32 @@ class SimpleMonitor13(app_manager.RyuApp):
                 overall_flow_number += 1
             #print("arttırdım", totalNumFlows)
             table_occupancy=totalNumFlows/table_size
-            print(f"totalNumFLows before adding to flow table {totalNumFlows} with {key}")
+            #print(f"totalNumFLows before adding to flow table {totalNumFlows} with {key}")
             
             with flow_table_lock:
                 self.flow_table.add(key)
                 
             if key in self.eviction_data_table:
-                self.eviction_data_table[key]["packet_in_time"] = current_time
-                self.eviction_data_table[key]["hit_count"] = 0
+                with eviction_data_table_lock: 
+                    self.eviction_data_table[key]["packet_in_time"] = current_time
+                    self.eviction_data_table[key]["hit_count"] = 0
             else:
-                self.eviction_data_table.setdefault(key, {})["packet_in_time"] = current_time
-                self.eviction_data_table[key]["hit_count"] = 0
+                with eviction_data_table_lock:
+                    self.eviction_data_table.setdefault(key, {})["packet_in_time"] = current_time
+                    self.eviction_data_table[key]["hit_count"] = 0
                     
                 
                 
             if key in self.data_table:
                 packet_count = self.data_table.get(key).get("packet_count", 0)
                 packet_count += 1
-                self.data_table[key]["packet_count"] = packet_count
+                with data_table_lock:
+                    self.data_table[key]["packet_count"] = packet_count
                     
                     
             else:
-                self.data_table[key] = {"packet_count" : 1}
+                with data_table_lock:
+                    self.data_table[key] = {"packet_count" : 1}
             
             
         #print("ALLOCATED TIMEOUT FOR THE FLOW %s IS %d" % (key, allocatedTimeout))
@@ -481,23 +494,27 @@ class SimpleMonitor13(app_manager.RyuApp):
             
         #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
         if key in self.data_table:
-            self.data_table[key]["idle_timeout"] = allocatedTimeout
+            with data_table_lock:
+                self.data_table[key]["idle_timeout"] = allocatedTimeout
             #print("arttırıldı", key)
             #self.eviction_data_table[key]["packet_count"] = packet_count
         else:
-            self.data_table[key] = {"idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
+            with data_table_lock:
+                self.data_table[key] = {"idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
             
         
 
         #last_hit_time field update regardless of being in flow table
         if key not in self.eviction_data_table:
             # If the key doesn't exist, set the value for the key using setdefault
-            self.eviction_data_table.setdefault(key, {})["idle_timeout"] = allocatedTimeout
+            with eviction_data_table_lock:
+                self.eviction_data_table.setdefault(key, {})["idle_timeout"] = allocatedTimeout
                 
             #self.eviction_data_table[key]["last_hit_time"] = current_time 
         else:
             # If the key exists, update the value
-            self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
+            with eviction_data_table_lock:
+                self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
             #self.eviction_data_table[key]["last_hit_time"] = current_time 
            
          
@@ -511,9 +528,7 @@ class SimpleMonitor13(app_manager.RyuApp):
     def _packet_in_handler(self, ev):
         global rejected_flows
         
-        if not self.first_packet_received:
-            self.first_packet_in_time = datetime.now()
-            self.first_packet_received = True
+        
        
         # If you hit this you might want to increase
         # the "miss_send_length" of your switch
@@ -640,9 +655,11 @@ class SimpleMonitor13(app_manager.RyuApp):
                 key = self.generate_key(eth_src,eth_dst,in_port)
                 if key in self.flow_table:
                     if key in self.eviction_data_table:
-                        self.eviction_data_table[key]["hit_count"] = stat.packet_count
+                        with eviction_data_table_lock:
+                            self.eviction_data_table[key]["hit_count"] = stat.packet_count
                     else:
-                        self.eviction_data_table.setdefault(key, {})["hit_count"] = stat.packet_count
+                        with eviction_data_table_lock:
+                            self.eviction_data_table.setdefault(key, {})["hit_count"] = stat.packet_count
                 #print(eth_src)
                 #print(eth_dst)
             
@@ -724,7 +741,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         
 
         # Update the flow table with the modified flow attributes
-        self.data_table[key] = existing_flow_attributes
+        with data_table_lock:
+            self.data_table[key] = existing_flow_attributes
         #self.eviction_data_table[key]["hit_count"] = 0 #update the hit count to 0 when flow is removed.
         
         if key in self.flow_table: 
@@ -736,10 +754,12 @@ class SimpleMonitor13(app_manager.RyuApp):
         
         #delete the key from the eviction data table
         if key in self.eviction_data_table:
-            del self.eviction_data_table[key]
+            with eviction_data_table_lock:
+                del self.eviction_data_table[key]
         
         if key in self.eviction_cache:
-            del self.eviction_cache[key]
+            with eviction_data_table_lock:
+                del self.eviction_cache[key]
         
         #print("AZALTTIM")
             
@@ -834,8 +854,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         global table_occupancy
 
         #self.calculate_heuristic()
-        high_threshold = 0.99
-        low_threshold = 0.9
+        high_threshold = 0.8
+        low_threshold = 0.50
 
         
         if table_occupancy >= high_threshold:
@@ -866,7 +886,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                         temp_num_flows -= 1
 
                     # Update table occupancy
-                    table_occupancy = totalNumFlows / table_size
+                    with table_occupancy_lock:
+                        table_occupancy = totalNumFlows / table_size
                     temp_occupancy = temp_num_flows / table_size
                     print("CURRENT OCCUPANCY", table_occupancy)
                     print("TEMP OCCUPANCY", temp_occupancy)
