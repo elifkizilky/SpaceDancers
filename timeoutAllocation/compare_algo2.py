@@ -96,7 +96,6 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.monitor_thread = hub.spawn(self._monitor)
         self.average_calculation_thread = hub.spawn(self._calculate_averages)
         self.flow_table = set()
-        self.proactive_eviction_event = threading.Event()
         self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
         self.proactive_eviction_thread.daemon = True
         self.proactive_eviction_thread.start()
@@ -575,13 +574,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                 eth_dst = stat.match['eth_dst']
                 #print(in_port)
                 key = self.generate_key(eth_src,eth_dst,in_port)
-             
-            #self.logger.info('FlowStats:\n' + table.get_string())
-        #print('FlowStats:\n' + table.get_string())
-        self.calculate_heuristic()
-        #print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
-        # Signal that stats reply has been handled, specifically for proactive eviction
-        self.proactive_eviction_event.set()
+  
+   
                 
 
         

@@ -49,7 +49,7 @@ flow_table_lock = threading.Lock()
 table_occupancy_lock = threading.Lock()
 
 cookie=0
-table_size=100  #just reading
+table_size=500  #just reading
 #npacketIn=0
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
