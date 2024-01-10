@@ -49,7 +49,7 @@ flow_table_lock = threading.Lock()
 table_occupancy_lock = threading.Lock()
 
 cookie=0
-table_size=100  #just reading
+table_size=500  #just reading
 #npacketIn=0
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -259,7 +259,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             # Check if the first packet has been received and last flow removed
             
             if self.first_packet_received and self.last_flow_removed_time:
-                print("BURASUIIIIIIIIIIII")
+               
                 total_time_passed = (self.last_flow_removed_time - self.first_packet_in_time).total_seconds()
                 if total_time_passed > 0:
                     # Calculate averages
@@ -854,7 +854,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         global table_occupancy
 
         #self.calculate_heuristic()
-        high_threshold = 0.8
+        high_threshold = 0.99
         low_threshold = 0.50
 
         
