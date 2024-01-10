@@ -70,7 +70,7 @@ def set_flow_table_size(switch_name, flow_table_size):
 def start_mininet():
     
     topo = MyTopology()
-    file_name= "small_univ11"
+    file_name= "large"
     hosts, macs = create_hosts(topo, file_name)
 
     controller = RemoteController('c0', ip='127.0.0.1', port=6633)
