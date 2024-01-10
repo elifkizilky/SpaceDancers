@@ -48,9 +48,10 @@ eviction_cache_lock = threading.Lock()
 totalNumFlows_lock = threading.Lock()
 total_packet_in_lock = threading.Lock()
 flow_table_lock = threading.Lock()
+table_occupancy_lock = threading.Lock()
 
 cookie=0
-table_size=100  #just reading
+table_size=300  #just reading
 #npacketIn=0
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -145,7 +146,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         idle_timeout = t_init
         tmax = 32  # Maximum idle time
         
-        table_occupancy=totalNumFlows/table_size #FRACTION POINT FIX
+        with table_occupancy_lock:
+            table_occupancy=totalNumFlows/table_size #FRACTION POINT FIX
         #print("TABLE OCCUPANCY IS %f" % (table_occupancy))
        
         
@@ -266,7 +268,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         average_interval = 15
         
         while True:
-            for dp in self.datapaths.values():
+            datapaths_snapshot = list(self.datapaths.values())
+            for dp in datapaths_snapshot:
                 
                 
                 #self._request_stats(dp)
@@ -288,7 +291,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                 print("TOTAL PACKET IN COUNT", total_packet_in_count)
                 
                 print("OVERALL FLOW NUMBER", overall_flow_number)
-                table_occupancy = totalNumFlows/table_size
+                with table_occupancy_lock:
+                    table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
                 print("TOTAL NUM FLOWS", totalNumFlows)
                 print("FLOW TABLE", self.flow_table)
@@ -450,6 +454,12 @@ class SimpleMonitor13(app_manager.RyuApp):
             # Update only the last_packet_in attribute, preserving other attributes
             existing_flow_attributes = self.data_table.get(key, {})
             existing_flow_attributes['last_packet_in'] = current_time
+            
+            if not self.first_packet_received:
+                self.first_packet_in_time = current_time
+                self.first_packet_received = True
+                
+                
             self.data_table[key] = existing_flow_attributes
                 
             allocatedTimeout = self.set_idle_timeout(key)
@@ -457,7 +467,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                 totalNumFlows += 1 #increase the number of flows since I'm adding to flow table
                 overall_flow_number += 1
             #print("arttırdım", totalNumFlows)
-            table_occupancy=totalNumFlows/table_size
+            with table_occupancy_lock:
+                table_occupancy=totalNumFlows/table_size
             print(f"totalNumFLows before adding to flow table {totalNumFlows} with {key}")
             with flow_table_lock:
                 self.flow_table.add(key)
@@ -521,9 +532,7 @@ class SimpleMonitor13(app_manager.RyuApp):
     def _packet_in_handler(self, ev):
         global rejected_flows
         
-        if not self.first_packet_received:
-            self.first_packet_in_time = datetime.now()
-            self.first_packet_received = True
+        
        
         # If you hit this you might want to increase
         # the "miss_send_length" of your switch
@@ -866,8 +875,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         global table_occupancy
 
         #self.calculate_heuristic()
-        high_threshold = 0.9
-        low_threshold = 0.8
+        high_threshold = 0.99
+        low_threshold = 0.75
 
         
         if table_occupancy >= high_threshold:
@@ -898,7 +907,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                         temp_num_flows -= 1
 
                     # Update table occupancy
-                    table_occupancy = totalNumFlows / table_size
+                    with table_occupancy_lock:
+                        table_occupancy = totalNumFlows / table_size
                     temp_occupancy = temp_num_flows / table_size
                     print("CURRENT OCCUPANCY", table_occupancy)
                     print("TEMP OCCUPANCY", temp_occupancy)
