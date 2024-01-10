@@ -66,13 +66,6 @@ hit_count=0
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
-
-    def _proactive_eviction_loop(self):
-        global table_occupancy
-        while True:
-            table_occupancy = totalNumFlows/table_size
-            self.proactive_eviction()
-            time.sleep(2)  # Run proactive eviction every 2 seconds
             
     def __init__(self, *args, **kwargs):
         super(SimpleMonitor13, self).__init__(*args, **kwargs)
@@ -96,45 +89,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.monitor_thread = hub.spawn(self._monitor)
         self.average_calculation_thread = hub.spawn(self._calculate_averages)
         self.flow_table = set()
-        self.proactive_eviction_event = threading.Event()
-        #self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
-        #self.proactive_eviction_thread.daemon = True
-        #self.proactive_eviction_thread.start()
 
     
-    
-
-        
-    #calculate heuristic
-    def calculate_heuristic(self):
-        temp_heap = []
-        for key in self.eviction_data_table:
-            if key in self.flow_table:
-                packet_in = datetime.strptime(self.eviction_data_table[key]["packet_in_time"], "%Y-%m-%d %H:%M:%S")
-                #last_hit = datetime.strptime(self.eviction_data_table[key]["last_hit_time"], "%Y-%m-%d %H:%M:%S")
-                total_hits = 0
-                if self.eviction_data_table[key].get("hit_count"):
-                    total_hits = self.eviction_data_table[key]["hit_count"]
-                current_time = datetime.now()
-                #heuristic = ((last_hit - packet_in).total_seconds()/(current_time-packet_in).total_seconds())* total_hits
-                self.eviction_data_table[key]["time passed now"] = (current_time-packet_in).total_seconds()
-                heuristic = total_hits/( self.eviction_data_table[key]["time passed now"])
-                
-                #self.eviction_cache.setdefault(key, {})["heuristics"] = heuristic
-                self.eviction_data_table[key]["heuristics"] = heuristic
-                
-                heapq.heappush(temp_heap, (heuristic, key))
-        table = PrettyTable()
-        table.field_names = ["Key", "heuristics"]
-        
-        self.eviction_cache = temp_heap
-
-        for heuristic, key in self.eviction_cache:
-            # Add each key and its corresponding heuristic to the table
-            table.add_row([key, heuristic])
-
-        #print('SELF EVICTION CACHE:\n' + table.get_string())
-        #print("SELF EVICTION CACHE" , self.eviction_cache)
+   
     
      
     #get the table_occupancy globally
@@ -194,12 +151,6 @@ class SimpleMonitor13(app_manager.RyuApp):
         # Concatenate eth_src, eth_dst, and in_port values
         combined_values = f"{eth_src}-{eth_dst}-{in_port}".encode('utf-8')
 
-        # Generate a hash value
-        #cookie = hashlib.sha256(combined_values).hexdigest()
-        #cookie_int = int(cookie, 16)
-
-        #print("COOKIE ", cookie_int)
-        #print("COOKIE ", combined_values)
         return combined_values
 
     # This function checks and removes entries from the data table
@@ -271,21 +222,11 @@ class SimpleMonitor13(app_manager.RyuApp):
             datapaths_snapshot = list(self.datapaths.values())
             for dp in datapaths_snapshot:
                 
-                
-                #self._request_stats(dp)
-               
-                #self.remove_flow(dp, 2)
+   
                 self.send_table_stats_request(dp)
-                #self.send_meter_stats_request(dp)
-                #self.check_and_delete_entries() #sonra aç
-                #print("Data table: ", self.display_data_table())
+     
                 
-                #self.display_data_table()
-                
-                #self.calculate_heuristic()
-                
-                #print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
-                
+            
                 print("REJECTED FLOWS", rejected_flows)
                
                 print("TOTAL PACKET IN COUNT", total_packet_in_count)
@@ -297,7 +238,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 print("TOTAL NUM FLOWS", totalNumFlows)
                 print("FLOW TABLE", self.flow_table)
                 print("TOTAL HIT COUNT", lookup_count_diff- total_packet_in_count - rejected_flows)
-                #self.proactive_eviction()
+
                 
                 cpu_usage = psutil.cpu_percent(interval=1)
                 memory_usage = psutil.virtual_memory().percent
@@ -456,7 +397,7 @@ class SimpleMonitor13(app_manager.RyuApp):
             existing_flow_attributes['last_packet_in'] = current_time
             
             if not self.first_packet_received:
-                self.first_packet_in_time = current_time
+                self.first_packet_in_time = datetime.now()
                 self.first_packet_received = True
                 
                 
@@ -601,14 +542,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         
            
                 
-           
-       
-        #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
-        
-      
-            
-    #to delete flow rule
-  
+
   
     def send_flow_stats_request(self, datapath):
         ofp = datapath.ofproto
@@ -652,53 +586,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                        stat.byte_count,
                        stat.match,
                        stat.instructions])
-            
-            #print(type(stat.match))
-            if 'in_port' in stat.match and 'eth_src' in stat.match and 'eth_dst' in stat.match:
-                in_port = stat.match['in_port']
-                eth_src = stat.match['eth_src']
-                eth_dst = stat.match['eth_dst']
-                #print(in_port)
-                key = self.generate_key(eth_src,eth_dst,in_port)
-                if key in self.flow_table:
-                    if key in self.eviction_data_table:
-                        self.eviction_data_table[key]["hit_count"] = stat.packet_count
-                    else:
-                        self.eviction_data_table.setdefault(key, {})["hit_count"] = stat.packet_count
-                #print(eth_src)
-                #print(eth_dst)
-            
-            #self.logger.info('FlowStats:\n' + table.get_string())
-        #print('FlowStats:\n' + table.get_string())
-        self.calculate_heuristic()
-        #print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
-        # Signal that stats reply has been handled, specifically for proactive eviction
-        self.proactive_eviction_event.set()
-                
+  
 
-        '''
-            # Extracting in_port
-            in_port_start = stat.match.find("'in_port': ") + len("'in_port': ")
-            in_port_end = stat.match.find(",", in_port_start)
-            in_port = stat.match[in_port_start:in_port_end]
-
-            # Extracting eth_src
-            eth_src_start = stat.match.find("'eth_src': '") + len("'eth_src': '")
-            eth_src_end = stat.match.find("'", eth_src_start)
-            eth_src = stat.match[eth_src_start:eth_src_end]
-
-            # Extracting eth_dst
-            eth_dst_start = stat.match.find("'eth_dst': '") + len("'eth_dst': '")
-            eth_dst_end = stat.match.find("'", eth_dst_start)
-            eth_dst = match_str[eth_dst_start:eth_dst_end]
-            if in_port is not None and dst is not None and src is not None:
-                key = self.generate_key(src,dst,in_port)
-                self.eviction_data_table[key]["hit_count"] = stat.packet_count
-        '''
-            
-            
-        #self.logger.debug('FlowStats: %s', flows)
-        #print('FlowStats: %s' % flows)
         
         
         
@@ -867,50 +756,6 @@ class SimpleMonitor13(app_manager.RyuApp):
     
     
     
-            
-            
-    def proactive_eviction(self):
-        global totalNumFlows
-        global table_size
-        global table_occupancy
-
-        #self.calculate_heuristic()
-        high_threshold = 0.99
-        low_threshold = 0.75
-
         
-        if table_occupancy >= high_threshold:
-            
-            for dp in self.datapaths.values():
-                self._request_stats(dp)
-            
-            
-            # Wait specifically for the proactive eviction event
-            self.proactive_eviction_event.wait()
-            self.proactive_eviction_event.clear()
-            # Continue with eviction if occupancy is still high
-            
-            if table_occupancy >= high_threshold:
-                print("buraya girdi")
-                temp_num_flows = totalNumFlows
-                temp_occupancy = table_occupancy
-                while temp_occupancy > low_threshold and self.eviction_cache:
-                    # Pop the flow with the smallest heuristic value
-                    _, key = heapq.heappop(self.eviction_cache)
-
-                    # Extract src, dst, and in_port from key
-                    src, dst, in_port = key.decode('utf-8').split('-')
-
-                    # Evict flow from all datapaths
-                    for datapath in self.datapaths.values():
-                        self.remove_flow(datapath, src, dst, int(in_port))
-                        temp_num_flows -= 1
-
-                    # Update table occupancy
-                    with table_occupancy_lock:
-                        table_occupancy = totalNumFlows / table_size
-                    temp_occupancy = temp_num_flows / table_size
-                    print("CURRENT OCCUPANCY", table_occupancy)
-                    print("TEMP OCCUPANCY", temp_occupancy)
 
    
