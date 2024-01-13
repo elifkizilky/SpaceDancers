@@ -6,19 +6,24 @@ from mininet.node import RemoteController
 from scapy.all import *
 import time
 s1 =0
-SWITCH_SIZE= 500
+SWITCH_SIZE= 750
 class MyTopology(Topo):
     def build(self):
         global s1
         # Add switch
         s1 = self.addSwitch('s1')
+        h1= self.addHost('h1')
+        h2= self.addHost('h2')
+
+        self.addLink(s1,h1)
+        self.addLink(s1,h2)
 
 
 def create_hosts(topo):
     global s1
     hosts = {}
     macs= {}
-    file_name= "univ1_pt"
+    file_name= "medium"
     hostID=1
     for i in range(1,2):
         print(hostID)
@@ -61,7 +66,7 @@ def start_mininet():
     
     topo = MyTopology()
 
-    hosts, macs = create_hosts(topo)
+    #hosts, macs = create_hosts(topo)
 
     controller = RemoteController('c0', ip='127.0.0.1', port=6633)
     net = Mininet(topo=topo, controller=controller)
@@ -69,15 +74,17 @@ def start_mininet():
 
     set_flow_table_size('s1', SWITCH_SIZE)
     print("STARTING SETTING IP ADDRESSES")
+    '''
     for key, value in hosts.items():
         host= net.getNodeByName(value)
         host.setIP(key)
         host.setMAC(macs[value])
+    '''
     
     h1= net.get('h1')
     print("STARTING TCP REPLAY")
     file_name= "univ1_pt"
-    for i in range(1,2):
+    for i in range(1,21):
         pcap_file= file_name+str(i)
         print(pcap_file)
         output=h1.cmd('sudo tcpreplay --intf1=h1-eth0 {}'.format(pcap_file))

@@ -51,7 +51,7 @@ flow_table_lock = threading.Lock()
 table_occupancy_lock = threading.Lock()
 
 cookie=0
-table_size=300  #just reading
+table_size=750  #just reading
 #npacketIn=0
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -410,7 +410,6 @@ class SimpleMonitor13(app_manager.RyuApp):
             #print("arttırdım", totalNumFlows)
             with table_occupancy_lock:
                 table_occupancy=totalNumFlows/table_size
-            print(f"totalNumFLows before adding to flow table {totalNumFlows} with {key}")
             with flow_table_lock:
                 self.flow_table.add(key)
                 
