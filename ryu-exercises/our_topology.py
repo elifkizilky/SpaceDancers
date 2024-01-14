@@ -5,25 +5,29 @@ from mininet.cli import CLI
 from mininet.node import RemoteController
 from scapy.all import *
 import time
+import threading
 s1 =0
 SWITCH_SIZE= 300 #150 200 250
+SWITCH_SIZE= 750
 class MyTopology(Topo):
     def build(self):
         global s1
         # Add switch
         s1 = self.addSwitch('s1')
-        
-        h1 = self.addHost('h1')
-        h2= self.addHost('h2')
-        self.addLink(s1,h1)
-        self.addLink(s1,h2)
+
+        #CREATING HOSTS AND ADDING LINKS
+        for i in range(1, 3):
+            name= 'h'+str(i)
+            h= self.addHost(name)
+            self.addLink(s1,h)
 
 
+#Creates hosts with certain address and macs
 def create_hosts(topo):
     global s1
     hosts = {}
     macs= {}
-    file_name= "univ1_pt"
+    file_name= "medium"
     hostID=1
     for i in range(1,2):
         print(hostID)
@@ -59,7 +63,14 @@ def create_hosts(topo):
 def set_flow_table_size(switch_name, flow_table_size):
     # Use ovs-vsctl command to set flow table size for the switch
     cmd = f"sudo ovs-vsctl -- --id=@ft create Flow_Table flow_limit={flow_table_size} overflow_policy=refuse -- set Bridge {switch_name} flow_tables=0=@ft"
-    subprocess.call(cmd, shell=True) 
+    subprocess.call(cmd, shell=True)
+ 
+
+#replay the same traffic on different hosts
+def replay_traffic(host, pcap_file):
+    print("STARTING TCP REPLAY FOR", pcap_file)
+    cmd = 'sudo tcpreplay --intf1={} {}'.format(host.defaultIntf(), pcap_file)
+    host.cmd(cmd)
 
 
 def start_mininet():
@@ -73,25 +84,41 @@ def start_mininet():
     net.start()
 
     set_flow_table_size('s1', SWITCH_SIZE)
+    print("STARTING SETTING IP ADDRESSES")
     '''
-     print("STARTING SETTING IP ADDRESSES")
     for key, value in hosts.items():
         host= net.getNodeByName(value)
         host.setIP(key)
         host.setMAC(macs[value])
-    
-    
     '''
-   
-    
-    h1= net.get('h1')
-    print("STARTING TCP REPLAY")
+    #for 2 pcap files
+    for i in range(1,3):
+        hosts_and_pcaps=[]
+        #for 2 hosts
+        file_name= 'univ1_pt'+str(i)
+        for i in range(1,3):
+            name= 'h' + str(i)
+            h= net.get(name)
+            hosts_and_pcaps.append((h, file_name))
+            
+        threads = []
+        for host, pcap in hosts_and_pcaps:
+            thread = threading.Thread(target=replay_traffic, args=(host, pcap))
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
+
+    '''
+        h1= net.get('h1')
     file_name= "univ1_pt"
-    for i in range(1,2):
+    for i in range(1,21):
         pcap_file= file_name+str(i)
         print(pcap_file)
         output=h1.cmd('sudo tcpreplay --intf1=h1-eth0 {}'.format(pcap_file))
         print(output)
+    '''
     CLI(net)
     net.stop()
 
