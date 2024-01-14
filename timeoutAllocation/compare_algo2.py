@@ -51,7 +51,7 @@ total_packet_in_lock = threading.Lock()
 flow_table_lock = threading.Lock()
 
 cookie=0
-table_size=100  #just reading
+table_size=150  #just reading
 #npacketIn=0
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -62,6 +62,8 @@ initial_lookup_count = 0  # Set this when you start monitoring
 initial_matched_count = 0  # Set this when you start monitoring
 lookup_count_diff=0
 reach_peak=0
+not_reach_peak=0
+low_threshold = 0.85
 
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -123,7 +125,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         coef95 = 0.9
         b_value = 1
         proactive_threshold=3 #s
-        long_interval_threshold=15 #s
+        long_interval_threshold=15#s
         # only last_packet_in field exist on the self.data_table, flow is newly come
         if key in self.data_table and len(self.data_table[key]) == 1 and 'last_packet_in' in self.data_table[key]:
             idle_timeout = t_init  # Initialize idle time
@@ -155,7 +157,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                         idle_timeout = int(min(tlastDuration + (tpacketIn - tlastRemoved).total_seconds(), tmax))
                         if idle_timeout <  1:
                             idle_timeout = 1
-                        if (tpacketIn - tlastRemoved)> long_interval_threshold:
+                        if (tpacketIn - tlastRemoved).total_seconds() > long_interval_threshold:
+                            print("olduuuuu")
                             self.eviction_data_table.append(key)
                     
             
@@ -274,7 +277,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
                 print("TOTAL NUM FLOWS", totalNumFlows)
-                print("FLOW TABLE", self.flow_table)
+                #print("FLOW TABLE", self.flow_table)
                 
                 cpu_usage = psutil.cpu_percent(interval=1)
                 memory_usage = psutil.virtual_memory().percent
@@ -444,6 +447,7 @@ class SimpleMonitor13(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         global rejected_flows
+        global reach_peak
         
         if not self.first_packet_received:
             self.first_packet_in_time = datetime.now()
@@ -751,28 +755,40 @@ class SimpleMonitor13(app_manager.RyuApp):
         global totalNumFlows
         global table_size
         global table_occupancy
+        global reach_peak
+        global not_reach_peak
+        global low_threshold
 
         #self.calculate_heuristic()
-        high_threshold = 0.99
-        low_threshold = 0.9
+        high_threshold = 0.95
+        
         
         if reach_peak>0:
-            low_threshold-= 0.05
+            low_threshold= max(low_threshold-0.05,0 )
+            reach_peak=0
             print("LOW THRESHOLD", low_threshold)
-        
+            not_reach_peak=0
+        else:
+            not_reach_peak+=1
+
+        if not_reach_peak>=20:
+            low_threshold += max(low_threshold+0.05,1 )
 
         if table_occupancy >= high_threshold:
             temp_num_flows = totalNumFlows
             temp_occupancy = table_occupancy
+            print("CALL REMOVE-1")
+            print("EV data table", self.eviction_data_table)
             while temp_occupancy > low_threshold and self.eviction_data_table:
                 # Pop the flow with the smallest heuristic value
                 key = self.eviction_data_table.pop()
 
                 # Extract src, dst, and in_port from key
                 src, dst, in_port = key.decode('utf-8').split('-')
-
+                print("CALL REMOVE-2")
                 # Evict flow from all datapaths
                 for datapath in self.datapaths.values():
+                    print("CALL REMOVE")
                     self.remove_flow(datapath, src, dst, int(in_port))
                     temp_num_flows -= 1
 

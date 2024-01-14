@@ -49,7 +49,7 @@ flow_table_lock = threading.Lock()
 table_occupancy_lock = threading.Lock()
 
 cookie=0
-table_size=500  #just reading
+table_size=150  #just reading
 #npacketIn=0
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -306,23 +306,20 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #self.send_meter_stats_request(dp)
                 #self.check_and_delete_entries() #sonra aç
                 #print("Data table: ", self.display_data_table())
-                
                 #self.display_data_table()
-                
                 #self.calculate_heuristic()
                 #print("DATA TABLE FOR PROACTIVE", self.display_eviction_data_table())
                
                 print("REJECTED FLOWS", rejected_flows)
                 #print("FLOW TABLE", self.flow_table)
                 print("TOTAL PACKET COUNT", total_packet_in_count)
-                print("TOTAL HİT COUNT", lookup_count_diff-total_packet_in_count - rejected_flows)
+                print("TOTAL HIT COUNT", lookup_count_diff-total_packet_in_count - rejected_flows)
+                print("MISS RATE", (total_packet_in_count+rejected_flows)/lookup_count_diff)
                 print("OVERALL FLOW NUMBER", overall_flow_number)
                 table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
                 print("TOTAL NUM FLOWS", totalNumFlows)
-                print("FLOW TABLE", self.flow_table)
-
-                #self.proactive_eviction()
+                #print("FLOW TABLE", self.flow_table)
                 
                 cpu_usage = psutil.cpu_percent(interval=1)
                 memory_usage = psutil.virtual_memory().percent
@@ -854,7 +851,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         global table_occupancy
 
         #self.calculate_heuristic()
-        high_threshold = 0.99
+        high_threshold = 0.85
         low_threshold = 0.50
 
         
