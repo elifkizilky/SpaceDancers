@@ -8,7 +8,7 @@ import time
 import threading
 s1 =0
 SWITCH_SIZE= 300 #150 200 250
-SWITCH_SIZE= 750
+
 class MyTopology(Topo):
     def build(self):
         global s1
@@ -68,7 +68,7 @@ def set_flow_table_size(switch_name, flow_table_size):
 
 #replay the same traffic on different hosts
 def replay_traffic(host, pcap_file):
-    print("STARTING TCP REPLAY FOR", pcap_file)
+    print("STARTING TCP REPLAY FOR", pcap_file, " and ", host)
     cmd = 'sudo tcpreplay --intf1={} {}'.format(host.defaultIntf(), pcap_file)
     host.cmd(cmd)
 
@@ -100,9 +100,11 @@ def start_mininet():
             name= 'h' + str(i)
             h= net.get(name)
             hosts_and_pcaps.append((h, file_name))
-            
+        
+        print(hosts_and_pcaps)
         threads = []
-        for host, pcap in hosts_and_pcaps:
+        for (host, pcap) in hosts_and_pcaps:
+            print("host", host, "pcap", pcap)
             thread = threading.Thread(target=replay_traffic, args=(host, pcap))
             thread.start()
             threads.append(thread)
