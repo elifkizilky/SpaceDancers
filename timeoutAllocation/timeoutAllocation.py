@@ -179,8 +179,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         t_init = 1  # Initial value for idle time
         idle_timeout = t_init
         table_occupancy=totalNumFlows/table_size #FRACTION POINT FIX
-        coef95 = 0.9
-        b_value = 1
+        coef95 = constants.COEF_95
+        b_value = constants.B_VALUE
         #print("TABLE OCCUPANCY IS %f" % (table_occupancy))
        
         # only last_packet_in field exist on the self.data_table, flow is newly come
@@ -192,14 +192,14 @@ class SimpleMonitor13(app_manager.RyuApp):
             npacketIn = self.data_table.get(key).get('packet_count', 1)
             #npacketIn += 1
             #print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
-            if table_occupancy <=  0.60:
+            if table_occupancy <=  constants.IDLE_LOWER_THRESHOLD:
                 idle_timeout = min(t_init * 2 ** npacketIn, tmax)
                 tmax = tmax_restore_value #restore the tmax if occupancy is low
                 print("#######################################")
                 print("tmax value is restored, new tmax:", tmax)
                 print("#######################################")
                 #print("2. print key: %s nacketIn: %d t_init: %d idle_timeout: " % (key, npacketIn, t_init), idle_timeout)
-            elif table_occupancy <= 0.95: #there is a mistake in here
+            elif table_occupancy <= constants.IDLE_HIGH_THRESHOLD: #there is a mistake in here
                 tmax = max(tmax * coef95 - b_value, minimum_tmax)
                 print("#######################################")
                 print("tmax value is changed, new tmax:", tmax)
@@ -230,7 +230,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                             #print("5. print %s" % (key), idle_timeout)
                         
             
-            elif table_occupancy > 0.95:
+            elif table_occupancy > constants.IDLE_HIGH_THRESHOLD:
                 idle_timeout = 1
                 #print("6. print %s" % (key), idle_timeout)
             
@@ -847,8 +847,8 @@ class SimpleMonitor13(app_manager.RyuApp):
         
 
         #self.calculate_heuristic()
-        high_threshold = 0.85
-        low_threshold = 0.50
+        high_threshold = constants.HIGH_THRESHOLD
+        low_threshold = constants.LOW_THRESHOLD
 
         dataIsReadyFlag = 1
         
