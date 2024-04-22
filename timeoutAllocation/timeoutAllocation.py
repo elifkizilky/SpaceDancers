@@ -62,7 +62,7 @@ lookup_count_diff=0
 # PARAMETERS
 tmax = 40
 tmax_restore_value = tmax
-minimum_tmax = 15
+minimum_tmax = 12
 
 #FLAGS
 dataIsReadyFlag = 0
@@ -508,8 +508,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         else:
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                     idle_timeout=allocatedTimeout, hard_timeout=0, match=match, instructions=inst, flags= flags)
-            
-            
+        #print("////////////////////////////////////////")    
+        #print("mod", mod)
+        #print("////////////////////////////////////////") 
         #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
         if key in self.data_table:
             with data_table_lock:
