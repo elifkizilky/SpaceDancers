@@ -6,8 +6,11 @@ from mininet.node import RemoteController
 from scapy.all import *
 import time
 import threading
+
+import constants
+
 s1 =0
-SWITCH_SIZE= 300 #150 200 250
+SWITCH_SIZE= constants.TABLE_SIZE #150 200 250 300
 
 class MyTopology(Topo):
     def build(self):
@@ -27,7 +30,7 @@ def create_hosts(topo):
     global s1
     hosts = {}
     macs= {}
-    file_name= "medium"
+    file_name= constants.FILE_NAME
     hostID=1
     for i in range(1,2):
         print(hostID)
@@ -91,11 +94,11 @@ def start_mininet():
         host.setIP(key)
         host.setMAC(macs[value])
     '''
-    #for 2 pcap files
-    for i in range(1,3):
+    
+    for i in range(1,2): # 1,3 for 2 pcap files
         hosts_and_pcaps=[]
         #for 2 hosts
-        file_name= 'univ1_pt'+str(i)
+        file_name= 'large' #'univ1_pt'+str(i)
         for i in range(1,3):
             name= 'h' + str(i)
             h= net.get(name)
