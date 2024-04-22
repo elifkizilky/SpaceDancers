@@ -38,6 +38,8 @@ from ryu.lib import hub
 from operator import attrgetter
 import threading
 
+import constants
+
 # Initialize a lock
 
 data_table_lock = threading.Lock()
@@ -48,7 +50,7 @@ total_packet_in_lock = threading.Lock()
 flow_table_lock = threading.Lock()
 table_occupancy_lock = threading.Lock()
 
-table_size=150  #just reading
+table_size=constants.TABLE_SIZE  #just reading
 
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -60,9 +62,9 @@ initial_matched_count = 0  # Set this when you start monitoring
 lookup_count_diff=0
 
 # PARAMETERS
-tmax = 40
-tmax_restore_value = tmax
-minimum_tmax = 12
+tmax = constants.TMAX
+tmax_restore_value = constants.TMAX_RESTORE_VALUE
+minimum_tmax = constants.MINIMUM_TMAX
 
 #FLAGS
 dataIsReadyFlag = 0
