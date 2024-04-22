@@ -50,9 +50,8 @@ total_packet_in_lock = threading.Lock()
 flow_table_lock = threading.Lock()
 table_occupancy_lock = threading.Lock()
 
-cookie=0
 table_size=300  #just reading
-#npacketIn=0
+
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
 rejected_flows = 0
@@ -61,7 +60,6 @@ overall_flow_number = 1
 initial_lookup_count = 0  # Set this when you start monitoring
 initial_matched_count = 0  # Set this when you start monitoring
 lookup_count_diff=0
-hit_count=0
 
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
