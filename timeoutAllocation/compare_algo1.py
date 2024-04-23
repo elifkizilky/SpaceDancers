@@ -40,17 +40,18 @@ from ryu.lib import hub
 from operator import attrgetter
 import threading
 
+import constants
+
 # Initialize a lock
 
 data_table_lock = threading.Lock()
-eviction_data_table_lock = threading.Lock()
-eviction_cache_lock = threading.Lock()
+
 totalNumFlows_lock = threading.Lock()
 total_packet_in_lock = threading.Lock()
 flow_table_lock = threading.Lock()
 table_occupancy_lock = threading.Lock()
 
-table_size=300  #just reading
+table_size=constants.TABLE_SIZE  #just reading
 
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -79,8 +80,6 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.first_packet_received = False
         
         self.data_table = {}  # Dictionary to hold flow attributes
-        self.eviction_cache = {} # dictionary to hold flows that will be evicted (key,heut)
-        self.eviction_data_table = {}
         self.mac_to_port = {}
         self.datapaths = {}
         self.start_time = datetime.now()
@@ -97,37 +96,23 @@ class SimpleMonitor13(app_manager.RyuApp):
         global table_occupancy
         global totalNumFlows
         global table_size
+        
         t_init = 1  # Initial value for idle time
         idle_timeout = t_init
-        tmax = 32  # Maximum idle time
-        
-        with table_occupancy_lock:
-            table_occupancy=totalNumFlows/table_size #FRACTION POINT FIX
-        #print("TABLE OCCUPANCY IS %f" % (table_occupancy))
-       
-        
-        DeleteThreshold = 90 #for deleting flows from data table
-        coef95 = 0.9
-        b_value = 1
-        
+        table_occupancy=totalNumFlows/table_size #FRACTION POINT FIX
+
         # only last_packet_in field exist on the self.data_table, flow is newly come
         if key in self.data_table and len(self.data_table[key]) == 1 and 'last_packet_in' in self.data_table[key]:
             idle_timeout = t_init  # Initialize idle time
-            #print("1. print %s" % (key), idle_timeout)
             npacketIn = 1
         else:
             npacketIn = self.data_table.get(key).get('packet_count', 1)
-            #npacketIn += 1
-            #print("N_PACKET_IN FOR THE FLOW %s IS %d" % (key, npacketIn))   
+      
             if table_occupancy <=  0.95:
                 idle_timeout = t_init * 2 ** npacketIn
-                #print("2. print key: %s nacketIn: %d t_init: %d idle_timeout: " % (key, npacketIn, t_init), idle_timeout)
             elif table_occupancy > 0.95:
                 idle_timeout = 1
-                #print("6. print %s" % (key), idle_timeout)
             
-       
-       
         return idle_timeout
         
 
@@ -148,40 +133,15 @@ class SimpleMonitor13(app_manager.RyuApp):
     def generate_key(self, eth_src, eth_dst, in_port):
         # Concatenate eth_src, eth_dst, and in_port values
         combined_values = f"{eth_src}-{eth_dst}-{in_port}".encode('utf-8')
-
         return combined_values
 
-    # This function checks and removes entries from the data table
-    def check_and_delete_entries(self):
-        current_time = datetime.now()
-        elapsed_time = (current_time - self.start_time).total_seconds()
-        #print("ELAPSED TIME %f" % (elapsed_time))
-        entries_to_delete = []
-        DeleteThreshold = 90  # Define your DeleteThreshold constant here
-
-        for key, attributes in self.data_table.items():
-            last_removed_str = attributes.get('last_removed')
-            if last_removed_str:
-                #last_removed_dt = datetime.strptime(last_removed_str, "%Y-%m-%d %H:%M:%S")
-
-                last_duration = attributes.get('last_duration', 0)
-                # Creating a timedelta object representing a duration of 90 seconds
-                #delete_threshold = timedelta(seconds=DeleteThreshold)
-
-                if last_duration + DeleteThreshold < elapsed_time:
-                    entries_to_delete.append(key)
-
-        # Remove entries that meet the deletion condition
-        for key in entries_to_delete:
-            print("%s DELETED FROM DATA TABLE" % (key))
-            del self.data_table[key]
-     
      
     def _calculate_averages(self):
         temp_last_removed = None
         while True:
             # Check if the first packet has been received and last flow removed
             if self.first_packet_received and self.last_flow_removed_time:
+               
                 total_time_passed = (self.last_flow_removed_time - self.first_packet_in_time).total_seconds()
                 if total_time_passed > 0:
                     # Calculate averages
@@ -190,19 +150,21 @@ class SimpleMonitor13(app_manager.RyuApp):
                     avg_memory_usage = self.memory_usage_total / total_time_passed
 
                     # Print average values
+                    print("##############################--------------##############################")
                     print(f"Average Table Occupancy over {total_time_passed}: {avg_table_occupancy}")
                     print(f"Average CPU Usage over {total_time_passed}: {avg_cpu_usage}%")
                     print(f"Average Memory Usage over {total_time_passed}: {avg_memory_usage}%")
-
+                    print("##############################--------------##############################")
+            
             if temp_last_removed != self.last_flow_removed_time:
                 # Continue accumulating values every second
-                self.table_occupancy_total += (totalNumFlows / table_size)
+                self.table_occupancy_total += totalNumFlows / table_size
                 self.cpu_usage_total += psutil.cpu_percent(interval=None)/100
                 self.memory_usage_total += psutil.virtual_memory().percent/100
                 temp_last_removed = self.last_flow_removed_time
 
-
-            hub.sleep(1) 
+            
+            hub.sleep(1)
 
     #send stats request every 10s
     def _monitor(self):
@@ -223,28 +185,26 @@ class SimpleMonitor13(app_manager.RyuApp):
    
                 self.send_table_stats_request(dp)
      
-                
-            
+                print("##############################--------------##############################")
                 print("REJECTED FLOWS", rejected_flows)
                
                 print("TOTAL PACKET IN COUNT", total_packet_in_count)
+                print("TOTAL HIT COUNT", lookup_count_diff-total_packet_in_count - rejected_flows)
+       
+                if lookup_count_diff != 0:
+                    miss_rate = (total_packet_in_count + rejected_flows) / lookup_count_diff
+                    print("MISS RATE:", miss_rate)
+                else:
+                    print("MISS RATE: Division by zero avoided. Lookup count difference is zero.")
                 
                 print("OVERALL FLOW NUMBER", overall_flow_number)
-                with table_occupancy_lock:
-                    table_occupancy = totalNumFlows/table_size
+                table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
                 print("TOTAL NUM FLOWS", totalNumFlows)
-                print("FLOW TABLE", self.flow_table)
-                print("TOTAL HIT COUNT", lookup_count_diff- total_packet_in_count - rejected_flows)
-
-                
                 cpu_usage = psutil.cpu_percent(interval=1)
                 memory_usage = psutil.virtual_memory().percent
                 print(f"CPU Usage: {cpu_usage}%, Memory Usage: {memory_usage}%")
-                
-                
-               
-            
+                print("##############################--------------##############################")     
             hub.sleep(5)
 
     def display_data_table(self):
@@ -269,66 +229,12 @@ class SimpleMonitor13(app_manager.RyuApp):
         datapath.send_msg(req)
 
 
-    def display_eviction_data_table(self):
-        table = PrettyTable()
-        table.field_names = ["Key", "Idle Timeout", "Packet In Time", "Total number of hits", "Heuristics", "Time Passed Until Now"]
-
-        for key, attributes in self.eviction_data_table.items():
-            table.add_row([key, attributes.get("idle_timeout"), attributes.get("packet_in_time"), attributes.get("hit_count"), attributes.get("heuristics"), attributes.get("time passed now")])
-
-        print('Eviction Data Table:\n' + table.get_string())
-    
-    '''
-    @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
-    def _flow_stats_reply_handler(self, ev):
-        body = ev.msg.body
-        table = PrettyTable()
-        table.field_names = ["Table ID", "Duration (Sec)", "Priority", "Idle Timeout", "Hard Timeout", "Cookie", "Packet Count", "Byte Count", "Match", "Instructions"]
-
-        for stat in ev.msg.body:
-            table.add_row([stat.table_id,
-                       f"{stat.duration_sec} s",
-                       stat.priority,
-                       stat.idle_timeout,
-                       stat.hard_timeout,
-                       stat.cookie,
-                       stat.packet_count,
-                       stat.byte_count,
-                       stat.match,
-                       stat.instructions])
-
-        self.logger.info('FlowStats:\n' + table.get_string())
-        #self.logger.info('datapath         '
-        #                'in-port  eth-dst           '
-        #                'out-port packets  bytes')
-        #self.logger.info('---------------- '
-        #                '-------- ----------------- '
-        #               '-------- -------- --------')
-        
-        
-
-        for stat in sorted([flow for flow in body if flow.priority == 1],
-                           key=lambda flow: (flow.match['in_port'],
-                                             flow.match['eth_dst'])):
-            self.logger.info('%016x %8x %17s %8x %8d %8d',
-                             ev.msg.datapath.id,
-                             stat.match['in_port'], stat.match['eth_dst'],
-                             stat.instructions[0].actions[0].port,
-                             stat.packet_count, stat.byte_count)
-
-      
-    @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
-    '''
-
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         self.send_flow_stats_request(datapath)
-        #print("hello world!")
-
-
         # install table-miss flow entry
         #
         # We specify NO BUFFER to max_len of the output action due to
@@ -362,7 +268,6 @@ class SimpleMonitor13(app_manager.RyuApp):
     
     
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
-        global cookie
         global totalNumFlows
         global total_packet_in_count
         global table_occupancy
@@ -392,40 +297,30 @@ class SimpleMonitor13(app_manager.RyuApp):
         else:
             # Update only the last_packet_in attribute, preserving other attributes
             existing_flow_attributes = self.data_table.get(key, {})
-            existing_flow_attributes['last_packet_in'] = current_time
-            
+        
             if not self.first_packet_received:
                 self.first_packet_in_time = datetime.now()
                 self.first_packet_received = True
                 
-                
+            existing_flow_attributes['last_packet_in'] = current_time
             self.data_table[key] = existing_flow_attributes
                 
             allocatedTimeout = self.set_idle_timeout(key)
             with totalNumFlows_lock:
                 totalNumFlows += 1 #increase the number of flows since I'm adding to flow table
                 overall_flow_number += 1
-            #print("arttırdım", totalNumFlows)
-            with table_occupancy_lock:
-                table_occupancy=totalNumFlows/table_size
+   
+            table_occupancy=totalNumFlows/table_size
+
             with flow_table_lock:
                 self.flow_table.add(key)
                 
-            if key in self.eviction_data_table:
-                self.eviction_data_table[key]["packet_in_time"] = current_time
-                self.eviction_data_table[key]["hit_count"] = 0
-            else:
-                self.eviction_data_table.setdefault(key, {})["packet_in_time"] = current_time
-                self.eviction_data_table[key]["hit_count"] = 0
-                    
-                
-                
+                           
             if key in self.data_table:
                 packet_count = self.data_table.get(key).get("packet_count", 0)
                 packet_count += 1
-                self.data_table[key]["packet_count"] = packet_count
-                    
-                    
+                with data_table_lock:
+                    self.data_table[key]["packet_count"] = packet_count          
             else:
                 self.data_table[key] = {"packet_count" : 1}
             
@@ -433,36 +328,22 @@ class SimpleMonitor13(app_manager.RyuApp):
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
                                     idle_timeout=allocatedTimeout, hard_timeout=0, priority=priority, match=match,
-                                    instructions=inst, flags= flags)
-                
+                                    instructions=inst, flags= flags)   
         else:
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                     idle_timeout=allocatedTimeout, hard_timeout=0, match=match, instructions=inst, flags= flags)
             
-         
+        #TODO bunları komple silsem nolur
         if key in self.data_table:
-            self.data_table[key]["idle_timeout"] = allocatedTimeout
-          
+            with data_table_lock:
+                self.data_table[key]["idle_timeout"] = allocatedTimeout
         else:
-            self.data_table[key] = {"idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
+            with data_table_lock:
+                self.data_table[key] = {"idle_timeout": allocatedTimeout}  # Initialize packet_count as 1 for the new key
               
-
-
-        #last_hit_time field update regardless of being in flow table
-        if key not in self.eviction_data_table:
-            # If the key doesn't exist, set the value for the key using setdefault
-            self.eviction_data_table.setdefault(key, {})["idle_timeout"] = allocatedTimeout
-                
-            
-        else:
-            # If the key exists, update the value
-            self.eviction_data_table[key]["idle_timeout"] = allocatedTimeout
-          
-           
-    
-        datapath.send_msg(mod)
         with total_packet_in_lock:
             total_packet_in_count += 1
+        datapath.send_msg(mod)
  
  
  
@@ -470,8 +351,6 @@ class SimpleMonitor13(app_manager.RyuApp):
     def _packet_in_handler(self, ev):
         global rejected_flows
         
-        
-       
         # If you hit this you might want to increase
         # the "miss_send_length" of your switch
         if ev.msg.msg_len < ev.msg.total_len:
@@ -497,8 +376,6 @@ class SimpleMonitor13(app_manager.RyuApp):
         
         key = self.generate_key(src, dst, in_port)
       
-
-       
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = in_port
 
@@ -510,7 +387,6 @@ class SimpleMonitor13(app_manager.RyuApp):
         actions = [parser.OFPActionOutput(out_port)]
         
         
-            
         # install a flow to avoid packet_in next time
         if out_port != ofproto.OFPP_FLOOD:
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
@@ -520,8 +396,8 @@ class SimpleMonitor13(app_manager.RyuApp):
                 #if there is space in table_size, add flow
                 if totalNumFlows < table_size:
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id)
-                elif key not in self.flow_table: #check this condition??
-                    rejected_flows += 1
+                elif key not in self.flow_table: 
+                    rejected_flows += 1 #TODO lock koymalı mı
                 return
             else:
                 if totalNumFlows < table_size:
@@ -539,8 +415,6 @@ class SimpleMonitor13(app_manager.RyuApp):
         
            
                 
-
-  
     def send_flow_stats_request(self, datapath):
         ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
@@ -651,9 +525,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         
 
         # Update the flow table with the modified flow attributes
-        self.data_table[key] = existing_flow_attributes
-        #self.eviction_data_table[key]["hit_count"] = 0 #update the hit count to 0 when flow is removed.
-        
+        with data_table_lock:
+            self.data_table[key] = existing_flow_attributes
+
         if key in self.flow_table: 
             with totalNumFlows_lock:
                 totalNumFlows -= 1
@@ -661,41 +535,6 @@ class SimpleMonitor13(app_manager.RyuApp):
                 with flow_table_lock:
                     self.flow_table.discard(key)
         
-        #delete the key from the eviction data table
-        if key in self.eviction_data_table:
-            del self.eviction_data_table[key]
-        
-        if key in self.eviction_cache:
-            del self.eviction_cache[key]
-        
-        #print("AZALTTIM")
-            
-           
-    
-    def send_meter_stats_request(self, datapath):
-        ofp = datapath.ofproto
-        ofp_parser = datapath.ofproto_parser
-
-        req = ofp_parser.OFPMeterStatsRequest(datapath, 0, ofp.OFPM_ALL)
-        datapath.send_msg(req)
-        
-    @set_ev_cls(ofp_event.EventOFPMeterStatsReply, MAIN_DISPATCHER)
-    def meter_stats_reply_handler(self, ev):
-        meters = []
-        for stat in ev.msg.body:
-            meters.append('meter_id=0x%08x len=%d flow_count=%d '
-                        'packet_in_count=%d byte_in_count=%d '
-                        'duration_sec=%d duration_nsec=%d '
-                        'band_stats=%s' %
-                        (stat.meter_id, stat.len, stat.flow_count,
-                        stat.packet_in_count, stat.byte_in_count,
-                        stat.duration_sec, stat.duration_nsec,
-                        stat.band_stats))
-        self.logger.debug('MeterStats: %s', meters)
-        print('MeterStats: %s', meters)
-
-
-
 
     def send_table_stats_request(self, datapath):
         ofp_parser = datapath.ofproto_parser
