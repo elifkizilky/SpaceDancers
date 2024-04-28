@@ -47,6 +47,7 @@ eviction_data_table_lock = threading.Lock()
 eviction_cache_lock = threading.Lock()
 totalNumFlows_lock = threading.Lock()
 total_packet_in_lock = threading.Lock()
+rejected_flows_lock=threading.Lock()
 flow_table_lock = threading.Lock()
 table_occupancy_lock = threading.Lock()
 
@@ -599,13 +600,15 @@ class SimpleMonitor13(app_manager.RyuApp):
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id)
                    
                 elif key not in self.flow_table: #check this condition??
-                    rejected_flows += 1
+                    with rejected_flows_lock:
+                        rejected_flows += 1
                 return
             else:
                 if totalNumFlows < table_size:
                     self.add_flow(datapath, 1, match, actions)
                 elif key not in self.flow_table:
-                    rejected_flows += 1
+                    with rejected_flows_lock:
+                        rejected_flows += 1
 
         data = None
         if msg.buffer_id == ofproto.OFP_NO_BUFFER:
