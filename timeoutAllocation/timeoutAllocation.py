@@ -40,6 +40,11 @@ import threading
 
 import constants
 
+import http.server
+import socketserver
+import threading
+import os
+
 # Initialize a lock
 
 data_table_lock = threading.Lock()
@@ -99,7 +104,41 @@ class SimpleMonitor13(app_manager.RyuApp):
                 if dataIsReadyFlag == 2:  
                     self.proactive_eviction()
             time.sleep(2)  # Run proactive eviction every 2 seconds
-            
+   
+   
+    def run_server(self, port):
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/shutdown':
+                    print("Shutdown command received")
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"Shutting down")
+                    app_manager.AppManager.get_instance().close()
+                    print("##############################--------------##############################")
+                    print("REJECTED FLOWS", rejected_flows)
+                    #print("FLOW TABLE", self.flow_table)
+                    print("TOTAL PACKET COUNT", total_packet_in_count)
+                    print("TOTAL HIT COUNT", lookup_count_diff-total_packet_in_count - rejected_flows)
+                    if lookup_count_diff != 0:
+                        miss_rate = (total_packet_in_count + rejected_flows) / lookup_count_diff
+                        print("MISS RATE:", miss_rate)
+                    else:
+                        print("MISS RATE: Division by zero avoided. Lookup count difference is zero.")
+                    print("OVERALL FLOW NUMBER", overall_flow_number)
+                    table_occupancy = totalNumFlows/table_size
+                    print("TABLE OCCUPANCY", table_occupancy)
+                    print("TOTAL NUM FLOWS", totalNumFlows)                
+                    cpu_usage = psutil.cpu_percent(interval=1)
+                    memory_usage = psutil.virtual_memory().percent
+                    print(f"CPU Usage: {cpu_usage}%, Memory Usage: {memory_usage}%")
+                    print("##############################--------------##############################")
+                    os._exit(0)  # Forcefully stop the server and exit
+
+        with socketserver.TCPServer(("", port), Handler) as httpd:
+            print("serving at port", port)
+            httpd.serve_forever()
+                     
     def __init__(self, *args, **kwargs):
         super(SimpleMonitor13, self).__init__(*args, **kwargs)
         
@@ -123,6 +162,9 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.average_calculation_thread = hub.spawn(self._calculate_averages)
         self.flow_table = set()
         self.proactive_eviction_thread = hub.spawn(self._proactive_eviction_loop)
+        server_thread = threading.Thread(target=self.run_server, args=(9999,))
+        server_thread.daemon = True
+        server_thread.start()
         '''
         self.proactive_eviction_event = threading.Event()
         self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
@@ -130,7 +172,7 @@ class SimpleMonitor13(app_manager.RyuApp):
         self.proactive_eviction_thread.start()
         '''
 
-    
+
     
 
         

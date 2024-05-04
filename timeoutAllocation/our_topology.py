@@ -6,6 +6,7 @@ from mininet.node import RemoteController
 from scapy.all import *
 import time
 import threading
+import requests
 
 import constants
 
@@ -13,6 +14,8 @@ s1 =0
 SWITCH_SIZE= constants.TABLE_SIZE #150 200 250 300
 
 class MyTopology(Topo):
+    
+        
     def build(self):
         global s1
         # Add switch
@@ -75,6 +78,10 @@ def replay_traffic(host, pcap_file):
     cmd = 'sudo tcpreplay --intf1={} {}'.format(host.defaultIntf(), pcap_file)
     host.cmd(cmd)
 
+def send_shutdown_signal():
+    print("sending shutdown signal")
+    requests.get('http://localhost:9999/shutdown')
+    print("sent shutdown signal")
 
 def start_mininet():
     
@@ -95,10 +102,10 @@ def start_mininet():
         host.setMAC(macs[value])
     '''
     
-    for i in range(1,2): # 1,3 for 2 pcap files
+    for i in range(1,21): # 1,3 for 2 pcap files
         hosts_and_pcaps=[]
         #for 2 hosts
-        file_name= 'large' #'univ1_pt'+str(i)
+        file_name= 'univ1_pt'+str(i) #'univ1_pt'+str(i)
         for i in range(1,3):
             name= 'h' + str(i)
             h= net.get(name)
@@ -124,8 +131,11 @@ def start_mininet():
         output=h1.cmd('sudo tcpreplay --intf1=h1-eth0 {}'.format(pcap_file))
         print(output)
     '''
+    send_shutdown_signal()
     CLI(net)
     net.stop()
+    
 
 if __name__ == '__main__':
     start_mininet()
+    
