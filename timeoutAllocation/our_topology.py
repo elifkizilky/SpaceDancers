@@ -27,7 +27,7 @@ class MyTopology(Topo):
             h= self.addHost(name)
             self.addLink(s1,h)
 
-
+'''
 #Creates hosts with certain address and macs
 def create_hosts(topo):
     global s1
@@ -65,7 +65,8 @@ def create_hosts(topo):
                     hostID += 1
     print(hostID)
     return hosts, macs
-    
+'''
+
 def set_flow_table_size(switch_name, flow_table_size):
     # Use ovs-vsctl command to set flow table size for the switch
     cmd = f"sudo ovs-vsctl -- --id=@ft create Flow_Table flow_limit={flow_table_size} overflow_policy=refuse -- set Bridge {switch_name} flow_tables=0=@ft"
@@ -95,17 +96,13 @@ def start_mininet():
 
     set_flow_table_size('s1', SWITCH_SIZE)
     print("STARTING SETTING IP ADDRESSES")
-    '''
-    for key, value in hosts.items():
-        host= net.getNodeByName(value)
-        host.setIP(key)
-        host.setMAC(macs[value])
-    '''
-    
+    #range 0 to 9 for univ2
+    # 1 to 21 for univ1
     for i in range(1,21): # 1,3 for 2 pcap files
         hosts_and_pcaps=[]
-        #for 2 hosts
-        file_name= 'univ1_pt'+str(i) #'univ1_pt'+str(i)
+        file_name= constants.FILE_NAME +str(i) #'univ1_pt'+str(i)
+        print(file_name)
+        #for 2 hosts: h1 and h2
         for i in range(1,3):
             name= 'h' + str(i)
             h= net.get(name)
@@ -121,16 +118,6 @@ def start_mininet():
 
         for thread in threads:
             thread.join()
-
-    '''
-        h1= net.get('h1')
-    file_name= "univ1_pt"
-    for i in range(1,21):
-        pcap_file= file_name+str(i)
-        print(pcap_file)
-        output=h1.cmd('sudo tcpreplay --intf1=h1-eth0 {}'.format(pcap_file))
-        print(output)
-    '''
     send_shutdown_signal()
     CLI(net)
     net.stop()
