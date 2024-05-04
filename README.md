@@ -10,3 +10,8 @@ Software-Defined Networking (SDN) represents a transformative approach that deco
 
 If you want to replay network using the same hosts(same pcap file) run on mininet CLI:
 4. h1 tcpreplay --intf1=h1-eth0 medium1
+
+### To retrieve univ2 trace
+'''wget https://pages.cs.wisc.edu/~tbenson/IMC_DATA/univ2_trace.tgz'''
+
+'''tar -xzf univ2_trace.tgz -C ./timeoutAllocation'''
