@@ -289,13 +289,11 @@ class SimpleMonitor13(app_manager.RyuApp):
         global overall_flow_number
         global lookup_count_diff
         
-        average_interval = 15
-        
         while True:
             for dp in self.datapaths.values():
                 
                 self.send_table_stats_request(dp)
-                self.check_and_delete_entries()
+                #self.check_and_delete_entries()
 
                 print("##############################--------------##############################")
                 print("REJECTED FLOWS", rejected_flows)
@@ -834,8 +832,7 @@ class SimpleMonitor13(app_manager.RyuApp):
                 with table_occupancy_lock:
                     table_occupancy = totalNumFlows / table_size
                 temp_occupancy = temp_num_flows / table_size
-                print("CURRENT OCCUPANCY", table_occupancy)
-                print("TEMP OCCUPANCY", temp_occupancy)
+
             print("####################################")
             print("CURRENT OCCUPANCY", table_occupancy)
             print("TOTAL NUM FLOWS", totalNumFlows)
