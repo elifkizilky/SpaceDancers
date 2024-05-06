@@ -1,4 +1,4 @@
-TABLE_SIZE=150  #just reading
+TABLE_SIZE=300  #just reading
 
 # PARAMETERS
 TMAX = 32
@@ -6,8 +6,8 @@ TMAX_RESTORE_VALUE = TMAX
 MINIMUM_TMAX = 10
 
 # FILE NAME
-
-FILE_NAME = 'large'
+HOSTS = 7
+FILE_NAME = 'univ1_pt'
 '''
 medium
 univ1_pt1  -- 1..5

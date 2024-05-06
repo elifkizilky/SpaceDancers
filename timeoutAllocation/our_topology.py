@@ -22,7 +22,7 @@ class MyTopology(Topo):
         s1 = self.addSwitch('s1')
 
         #CREATING HOSTS AND ADDING LINKS
-        for i in range(1, 3):
+        for i in range(1, constants.HOSTS+1):
             name= 'h'+str(i)
             h= self.addHost(name)
             self.addLink(s1,h)
@@ -103,7 +103,7 @@ def start_mininet():
         file_name= constants.FILE_NAME +str(i) #'univ1_pt'+str(i)
         print(file_name)
         #for 2 hosts: h1 and h2
-        for i in range(1,3):
+        for i in range(1,constants.HOSTS+1):
             name= 'h' + str(i)
             h= net.get(name)
             hosts_and_pcaps.append((h, file_name))
