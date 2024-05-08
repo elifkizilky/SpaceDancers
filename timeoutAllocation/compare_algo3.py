@@ -37,6 +37,12 @@ from ryu.lib import hub
 #python related library for organizing data?
 from operator import attrgetter
 import threading
+import constants
+
+import http.server
+import socketserver
+import os
+
 
 # Initialize a lock
 
@@ -49,7 +55,7 @@ flow_table_lock = threading.Lock()
 table_occupancy_lock = threading.Lock()
 
 cookie=0
-table_size=150  #just reading
+table_size=constants.TABLE_SIZE  #just reading
 #npacketIn=0
 totalNumFlows=  1 #table miss flow ---- more than one function writes --> mutex?
 table_occupancy=1/table_size #only one function writes and others read so this is ok
@@ -63,6 +69,39 @@ lookup_count_diff=0
 
 class SimpleMonitor13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
+
+    def run_server(self, port):
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/shutdown':
+                    print("Shutdown command received")
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"Shutting down")
+                    app_manager.AppManager.get_instance().close()
+                    print("##############################--------------##############################")
+                    print("REJECTED FLOWS", rejected_flows)
+                    #print("FLOW TABLE", self.flow_table)
+                    print("TOTAL PACKET COUNT", total_packet_in_count)
+                    print("TOTAL HIT COUNT", lookup_count_diff-total_packet_in_count - rejected_flows)
+                    if lookup_count_diff != 0:
+                        miss_rate = (total_packet_in_count + rejected_flows) / lookup_count_diff
+                        print("MISS RATE:", miss_rate)
+                    else:
+                        print("MISS RATE: Division by zero avoided. Lookup count difference is zero.")
+                    print("OVERALL FLOW NUMBER", overall_flow_number)
+                    table_occupancy = totalNumFlows/table_size
+                    print("TABLE OCCUPANCY", table_occupancy)
+                    print("TOTAL NUM FLOWS", totalNumFlows)                
+                    cpu_usage = psutil.cpu_percent(interval=1)
+                    memory_usage = psutil.virtual_memory().percent
+                    print(f"CPU Usage: {cpu_usage}%, Memory Usage: {memory_usage}%")
+                    print("##############################--------------##############################")
+                    os._exit(0)  # Forcefully stop the server and exit
+
+        with socketserver.TCPServer(("", port), Handler) as httpd:
+            print("serving at port", port)
+            httpd.serve_forever()
 
 
     def _proactive_eviction_loop(self):
@@ -98,6 +137,10 @@ class SimpleMonitor13(app_manager.RyuApp):
         #self.proactive_eviction_thread = threading.Thread(target=self._proactive_eviction_loop)
         #self.proactive_eviction_thread.daemon = True
         #self.proactive_eviction_thread.start()
+
+        server_thread = threading.Thread(target=self.run_server, args=(9999,))
+        server_thread.daemon = True
+        server_thread.start()
 
     
     
@@ -320,7 +363,6 @@ class SimpleMonitor13(app_manager.RyuApp):
                 table_occupancy = totalNumFlows/table_size
                 print("TABLE OCCUPANCY", table_occupancy)
                 print("TOTAL NUM FLOWS", totalNumFlows)
-                print("FLOW TABLE", self.flow_table)
 
                 #self.proactive_eviction()
                 

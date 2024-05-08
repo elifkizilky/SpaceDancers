@@ -1,4 +1,4 @@
-TABLE_SIZE=300  #just reading
+TABLE_SIZE=1000  #just reading
 
 # PARAMETERS
 TMAX = 32
